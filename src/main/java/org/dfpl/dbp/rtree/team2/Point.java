@@ -8,6 +8,9 @@ public class Point {
 		this.x = x;
 		this.y = y;
 	}
+    public Point copy(){
+        return new Point(x,y);
+    }
 
 	public double getX() {
 		return x;
