@@ -23,11 +23,6 @@ public class RTreeImpl implements RTree {
     private static final int MAX_ENTRIES = 4; // M
     private static final int MIN_ENTRIES = 2; // m
 
-    // ---------- Internal geometry ----------
-    private static class DPoint {
-        final double x, y;
-        DPoint(double x,double y){ this.x=x; this.y=y; }
-    }
     private static class DRect {
         double xmin, ymin, xmax, ymax;
         DRect(double xmin,double ymin,double xmax,double ymax){
@@ -41,17 +36,22 @@ public class RTreeImpl implements RTree {
             xmax = Math.max(xmax, r.xmax);
             ymax = Math.max(ymax, r.ymax);
         }
-        void include(DPoint p){
-            xmin = Math.min(xmin, p.x);
-            ymin = Math.min(ymin, p.y);
-            xmax = Math.max(xmax, p.x);
-            ymax = Math.max(ymax, p.y);
+        void include(Point p){
+            var x = p.getX();
+            var y = p.getY();
+            xmin = Math.min(xmin, x);
+            ymin = Math.min(ymin, y);
+            xmax = Math.max(xmax, x);
+            ymax = Math.max(ymax, y);
         }
         boolean intersects(DRect r){
             return !(r.xmin > xmax || r.xmax < xmin || r.ymin > ymax || r.ymax < ymin);
         }
-        boolean contains(DPoint p){
-            return p.x >= xmin && p.x <= xmax && p.y >= ymin && p.y <= ymax;
+        boolean contains(Point p)
+        {
+            var x = p.getX();
+            var y = p.getY();
+            return x >= xmin && x <= xmax && y >= ymin && y <= ymax;
         }
         static double enlargement(DRect a, DRect b){
             double nx1 = Math.min(a.xmin, b.xmin);
@@ -61,9 +61,11 @@ public class RTreeImpl implements RTree {
             double newA = Math.max(0, nx2-nx1) * Math.max(0, ny2-ny1);
             return newA - a.area();
         }
-        static double mindist(DRect r, DPoint p){
-            double dx = (p.x < r.xmin) ? r.xmin - p.x : (p.x > r.xmax ? p.x - r.xmax : 0);
-            double dy = (p.y < r.ymin) ? r.ymin - p.y : (p.y > r.ymax ? p.y - r.ymax : 0);
+        static double mindist(DRect r, Point p){
+            double x = p.getX();
+            double y = p.getY();
+            double dx = (x < r.xmin) ? r.xmin - x : (x > r.xmax ? x - r.xmax : 0);
+            double dy = (y < r.ymin) ? r.ymin - y : (y > r.ymax ? y - r.ymax : 0);
             return Math.hypot(dx, dy);
         }
     }
@@ -135,7 +137,7 @@ public class RTreeImpl implements RTree {
             boolean isLeaf;
             DRect mbr;
             List<SNode> children = new ArrayList<>();
-            List<DPoint> points = new ArrayList<>(); // leaf points
+            List<Point> points = new ArrayList<>(); // leaf points
         }
 
         // snapshot root
@@ -146,7 +148,7 @@ public class RTreeImpl implements RTree {
 
         // marks
         DRect lastQuery;
-        DPoint lastSource;
+        Point lastSource;
         Set<Long> visited = Collections.synchronizedSet(new HashSet<>());
         Set<Long> pruned  = Collections.synchronizedSet(new HashSet<>());
         Point lastInserted, lastDeleted;
@@ -172,7 +174,7 @@ public class RTreeImpl implements RTree {
             s.mbr = (n.mbr==null)? null : n.mbr.copy();
             if (n.isLeaf){
                 for (Entry e : new ArrayList<>(n.entries)){
-                    s.points.add(new DPoint(e.mbr.xmin, e.mbr.ymin));
+                    s.points.add(new Point(e.mbr.xmin, e.mbr.ymin));
                 }
             } else {
                 for (Entry e : new ArrayList<>(n.entries)){
@@ -208,7 +210,7 @@ public class RTreeImpl implements RTree {
         }
 
         void setQuery(DRect q){ lastQuery=q; }
-        void setSource(DPoint s){ lastSource=s; }
+        void setSource(Point s){ lastSource=s; }
         void setLastInserted(Point p){ lastInserted=p; }
         void setLastDeleted(Point p){ lastDeleted=p; }
         void setKnn(List<Point> l){ knnSoFar = new ArrayList<>(l); }
@@ -291,7 +293,7 @@ public class RTreeImpl implements RTree {
             }
 
             if (lastSource != null){
-                java.awt.Point ps = map(lastSource.x,lastSource.y,W,H);
+                java.awt.Point ps = map(lastSource.getX(),lastSource.getY(),W,H);
                 g2.setColor(new Color(0,120,255));
                 int r=6; g2.fillOval(ps.x-r, ps.y-r, 2*r, 2*r);
                 g2.drawString("source", ps.x+8, ps.y-8);
@@ -331,8 +333,10 @@ public class RTreeImpl implements RTree {
 
             if (n.isLeaf){
                 g2.setColor(Color.black);
-                for (DPoint p : n.points){
-                    java.awt.Point sp = map(p.x,p.y,W,H);
+                for (Point p : n.points){
+                    var x = p.getX();
+                    var y = p.getY();
+                    java.awt.Point sp = map(x,y,W,H);
                     int d=4; g2.fillOval(sp.x-d, sp.y-d, 2*d, 2*d);
                 }
             } else {
@@ -450,7 +454,7 @@ public class RTreeImpl implements RTree {
 
             if (n.isLeaf){
                 for (Entry e : n.entries){
-                    if (query.contains(new DPoint(e.mbr.xmin, e.mbr.ymin))){
+                    if (query.contains(new Point(e.mbr.xmin, e.mbr.ymin))){
                         results.add(e.userPoint);
                     }
                 }
@@ -471,14 +475,16 @@ public class RTreeImpl implements RTree {
     @Override
     public Iterator<Point> nearest(Point source, int maxCount) {
         visual.resetMarks();
-        DPoint s = new DPoint(source.getX(), source.getY());
-        visual.setSource(s);
+        var x = source.getX();
+        var y = source.getY();
+
+        visual.setSource(source);
 
         // 시작 시 1회 스냅샷
         visual.update(root);
 
         PriorityQueue<Object[]> pq = new PriorityQueue<>(Comparator.comparingDouble(a -> (double)a[0]));
-        pq.add(new Object[]{ DRect.mindist(root.mbr==null? new DRect(0,0,0,0):root.mbr, s), 0, root }); // 0=node, 1=entry
+        pq.add(new Object[]{ DRect.mindist(root.mbr==null? new DRect(0,0,0,0):root.mbr, source), 0, root }); // 0=node, 1=entry
 
         ArrayList<Point> knn = new ArrayList<>();
         while(!pq.isEmpty() && knn.size()<maxCount){
@@ -494,14 +500,14 @@ public class RTreeImpl implements RTree {
 
                 if (n.isLeaf){
                     for (Entry e : n.entries){
-                        double d = Math.hypot(s.x - e.mbr.xmin, s.y - e.mbr.ymin);
+                        double d = Math.hypot(x - e.mbr.xmin, y - e.mbr.ymin);
                         pq.add(new Object[]{ d, 1, e });
                     }
                     visual.redraw();
                 } else {
                     for (Entry e : n.entries){
                         if (e.child!=null && e.child.mbr!=null){
-                            double d = DRect.mindist(e.child.mbr, s);
+                            double d = DRect.mindist(e.child.mbr, source);
                             pq.add(new Object[]{ d, 0, e.child });
                         }
                     }
@@ -727,7 +733,7 @@ public class RTreeImpl implements RTree {
         DRect pr = rectFrom(p);
         for (Entry e : n.entries){
             if (e.child!=null && e.child.mbr!=null &&
-                    (e.child.mbr.contains(new DPoint(pr.xmin,pr.ymin)) || e.child.mbr.intersects(pr))){
+                    (e.child.mbr.contains(new Point(pr.xmin,pr.ymin)) || e.child.mbr.intersects(pr))){
                 Node f = findLeaf(e.child, p);
                 if (f!=null) return f;
             }
@@ -745,7 +751,7 @@ public class RTreeImpl implements RTree {
         DRect pr = rectFrom(p);
         for (Entry e : n.entries){
             if (e.child!=null && e.child.mbr!=null &&
-                    (e.child.mbr.contains(new DPoint(pr.xmin,pr.ymin)) || e.child.mbr.intersects(pr))){
+                    (e.child.mbr.contains(new Point(pr.xmin,pr.ymin)) || e.child.mbr.intersects(pr))){
                 Node f = findLeafTrace(e.child, p, path);
                 if (f!=null) return f;
             }
