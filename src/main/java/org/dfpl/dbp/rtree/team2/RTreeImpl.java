@@ -12,7 +12,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * - Search: visited/pruned step view
  * - kNN: best-first with step view
  * - Delete: CondenseTree + reinsertion with underflow/reinsert visual steps
- *
  * JVM options:
  *   -Drtree.stepDelay=180  // step redraw delay(ms); 0 = instant
  *   -Drtree.slow=1         // initial update() small delay
@@ -23,62 +22,39 @@ public class RTreeImpl implements RTree {
     private static final int MAX_ENTRIES = 4; // M
     private static final int MIN_ENTRIES = 2; // m
 
-    private static class DRect {
-        double xmin, ymin, xmax, ymax;
-        DRect(double xmin,double ymin,double xmax,double ymax){
-            this.xmin=xmin; this.ymin=ymin; this.xmax=xmax; this.ymax=ymax;
-        }
-        DRect copy(){ return new DRect(xmin,ymin,xmax,ymax); }
-        double area(){ return Math.max(0,xmax-xmin) * Math.max(0,ymax-ymin); }
-        void include(DRect r){
-            xmin = Math.min(xmin, r.xmin);
-            ymin = Math.min(ymin, r.ymin);
-            xmax = Math.max(xmax, r.xmax);
-            ymax = Math.max(ymax, r.ymax);
-        }
-        void include(Point p){
-            var x = p.getX();
-            var y = p.getY();
-            xmin = Math.min(xmin, x);
-            ymin = Math.min(ymin, y);
-            xmax = Math.max(xmax, x);
-            ymax = Math.max(ymax, y);
-        }
-        boolean intersects(DRect r){
-            return !(r.xmin > xmax || r.xmax < xmin || r.ymin > ymax || r.ymax < ymin);
-        }
-        boolean contains(Point p)
-        {
-            var x = p.getX();
-            var y = p.getY();
-            return x >= xmin && x <= xmax && y >= ymin && y <= ymax;
-        }
-        static double enlargement(DRect a, DRect b){
-            double nx1 = Math.min(a.xmin, b.xmin);
-            double ny1 = Math.min(a.ymin, b.ymin);
-            double nx2 = Math.max(a.xmax, b.xmax);
-            double ny2 = Math.max(a.ymax, b.ymax);
-            double newA = Math.max(0, nx2-nx1) * Math.max(0, ny2-ny1);
-            return newA - a.area();
-        }
-        static double mindist(DRect r, Point p){
-            double x = p.getX();
-            double y = p.getY();
-            double dx = (x < r.xmin) ? r.xmin - x : (x > r.xmax ? x - r.xmax : 0);
-            double dy = (y < r.ymin) ? r.ymin - y : (y > r.ymax ? y - r.ymax : 0);
-            return Math.hypot(dx, dy);
-        }
+    // 사각형과 해당 점과의 죄소 거리
+    double mindist(Rectangle r, Point p){
+        double x = p.getX();
+        double y = p.getY();
+        double dx = (x < r.getXMin()) ? r.getXMin() - x : (x > r.getXMax() ? x - r.getXMax() : 0);
+        double dy = (y < r.getYMin()) ? r.getYMin() - y : (y > r.getYMax() ? y - r.getYMax() : 0);
+        return Math.hypot(dx, dy);
     }
 
+    // 기존 a의 크기와 a,b를 합친 사각형의 크기 차이 반환
+    double enlargement(Rectangle a, Rectangle b){
+        double nx1 = Math.min(a.getXMin(), b.getXMin());
+        double ny1 = Math.min(a.getYMin(), b.getYMin());
+        double nx2 = Math.max(a.getXMax(), b.getXMax());
+        double ny2 = Math.max(a.getYMax(), b.getYMax());
+        double newA = Math.max(0, nx2-nx1) * Math.max(0, ny2-ny1);
+        return newA - a.getArea();
+    }
+
+    boolean intersects(Rectangle a, Rectangle b){
+        if(a.getXMax()  < b.getXMin() || a.getXMin() > b.getXMax()) return false;
+        if(a.getYMax() < b.getYMin() || b.getYMax() < a.getYMin()) return false;
+        return true;
+    }
     // ---------- Tree structures ----------
     private static final AtomicLong NODE_IDS = new AtomicLong(1);
 
     private static class Entry {
-        DRect mbr;
+        Rectangle mbr;
         Node child;      // null if leaf
         Point userPoint; // set if leaf
-        Entry(DRect m, Node c){ mbr=m; child=c; }
-        Entry(DRect m, Point p){ mbr=m; userPoint=p; }
+        Entry(Rectangle m, Node c){ mbr=m; child=c; }
+        Entry(Rectangle m, Point p){ mbr=m; userPoint=p; }
     }
 
     private static class Node {
@@ -86,11 +62,14 @@ public class RTreeImpl implements RTree {
         boolean isLeaf;
         ArrayList<Entry> entries = new ArrayList<>();
         Node parent;
-        DRect mbr;
-        Node(boolean leaf){ isLeaf = leaf; }
+        // 내부 노드일 경우 자식을 모두 포함하는 사각형 1개 보유(값은 크기만 가짐)
+        Rectangle mbr;
+        // 잎 노드일 경우 해당 위치를 가진 점 1개 보유
+        Point leafPoint;
+        Node(boolean isLeaf){ this.isLeaf = isLeaf; }
         void recompute(){
             if (entries.isEmpty()){ mbr = null; return; }
-            DRect agg = entries.get(0).mbr.copy();
+            Rectangle agg = entries.get(0).mbr.copy();
             for (int i=1;i<entries.size();i++) agg.include(entries.get(i).mbr);
             mbr = agg;
         }
@@ -99,18 +78,8 @@ public class RTreeImpl implements RTree {
     private Node root = new Node(true);
     private int size = 0;
 
-    // ---------- Adapters to user types ----------
-    private static DRect rectFrom(Rectangle r){
-        Point lt = r.getLeftTop();
-        Point rb = r.getRightBottom();
-        double x1 = lt.getX(), y1 = lt.getY();
-        double x2 = rb.getX(), y2 = rb.getY();
-        double xmin = Math.min(x1,x2), ymin = Math.min(y1,y2);
-        double xmax = Math.max(x1,x2), ymax = Math.max(y1,y2);
-        return new DRect(xmin,ymin,xmax,ymax);
-    }
-    private static DRect rectFrom(Point p){
-        return new DRect(p.getX(), p.getY(), p.getX(), p.getY());
+    private static Rectangle rectFrom(Point p){
+        return new Rectangle(p,p);
     }
     private static boolean same(Point a, Point b){
         return Double.compare(a.getX(), b.getX())==0 && Double.compare(a.getY(), b.getY())==0;
@@ -135,7 +104,7 @@ public class RTreeImpl implements RTree {
         private class SNode {
             long id;
             boolean isLeaf;
-            DRect mbr;
+            Rectangle mbr;
             List<SNode> children = new ArrayList<>();
             List<Point> points = new ArrayList<>(); // leaf points
         }
@@ -147,7 +116,7 @@ public class RTreeImpl implements RTree {
         double wx1=0, wy1=0, wx2=200, wy2=200;
 
         // marks
-        DRect lastQuery;
+        Rectangle lastQuery;
         Point lastSource;
         Set<Long> visited = Collections.synchronizedSet(new HashSet<>());
         Set<Long> pruned  = Collections.synchronizedSet(new HashSet<>());
@@ -174,7 +143,7 @@ public class RTreeImpl implements RTree {
             s.mbr = (n.mbr==null)? null : n.mbr.copy();
             if (n.isLeaf){
                 for (Entry e : new ArrayList<>(n.entries)){
-                    s.points.add(new Point(e.mbr.xmin, e.mbr.ymin));
+                    s.points.add(new Point(e.mbr.getXMin(), e.mbr.getYMin()));
                 }
             } else {
                 for (Entry e : new ArrayList<>(n.entries)){
@@ -187,7 +156,7 @@ public class RTreeImpl implements RTree {
         // initial snapshot once per operation
         void update(Node r){
             this.snapRoot = snap(r);
-            autoFitSnapshot(this.snapRoot);
+            //autoFitSnapshot(this.snapRoot);
             repaintSlow(); // optional slow
         }
         // Visual 내부 필드에 추가
@@ -209,7 +178,7 @@ public class RTreeImpl implements RTree {
             if (d > 0){ try { Thread.sleep(d); } catch (InterruptedException ignored) {} }
         }
 
-        void setQuery(DRect q){ lastQuery=q; }
+        void setQuery(Rectangle q){ lastQuery=q; }
         void setSource(Point s){ lastSource=s; }
         void setLastInserted(Point p){ lastInserted=p; }
         void setLastDeleted(Point p){ lastDeleted=p; }
@@ -249,7 +218,7 @@ public class RTreeImpl implements RTree {
 
         private void autoFitSnapshot(SNode r){
             if (r==null || r.mbr==null) return;
-            wx1=r.mbr.xmin; wy1=r.mbr.ymin; wx2=r.mbr.xmax; wy2=r.mbr.ymax;
+            wx1=r.mbr.getXMin(); wy1=r.mbr.getYMin(); wx2=r.mbr.getXMax(); wy2=r.mbr.getYMax();
             double dx=(wx2-wx1)*0.05+1, dy=(wy2-wy1)*0.05+1;
             wx1-=dx; wy1-=dy; wx2+=dx; wy2+=dy;
         }
@@ -262,9 +231,9 @@ public class RTreeImpl implements RTree {
             return new java.awt.Point(sx, sy);
         }
 
-        private java.awt.Rectangle toAwtRect(DRect r, int W, int H){
-            java.awt.Point a = map(r.xmin,r.ymin,W,H);
-            java.awt.Point b = map(r.xmax,r.ymax,W,H);
+        private java.awt.Rectangle toAwtRect(Rectangle r, int W, int H){
+            java.awt.Point a = map(r.getXMin(),r.getYMin(),W,H);
+            java.awt.Point b = map(r.getXMax(),r.getYMax(),W,H);
             int x=Math.min(a.x,b.x), y=Math.min(a.y,b.y);
             int w=Math.abs(a.x-b.x), h=Math.abs(a.y-b.y);
             return new java.awt.Rectangle(x,y,w,h);
@@ -368,7 +337,7 @@ public class RTreeImpl implements RTree {
         visual.resetMarks();
         visual.update(root);
 
-        // 경로 추적 + 표시
+        // 해당 점과 가장 가까운 점을 찾기
         List<Node> path = new ArrayList<>();
         Node leaf = chooseLeafTrace(root, rectFrom(point), path);
         visual.showPath(path);
@@ -426,8 +395,7 @@ public class RTreeImpl implements RTree {
     @Override
     public Iterator<Point> search(Rectangle rectangle) {
         visual.resetMarks();
-        DRect query = rectFrom(rectangle);
-        visual.setQuery(query);
+        visual.setQuery(rectangle);
 
         // 시작 시 1회 스냅샷
         visual.update(root);
@@ -443,7 +411,7 @@ public class RTreeImpl implements RTree {
                 visual.redraw();
                 continue;
             }
-            if (!n.mbr.intersects(query)){
+            if (!intersects(n.mbr,rectangle)){
                 visual.markPruned(n);
                 visual.redraw();
                 continue;
@@ -454,13 +422,13 @@ public class RTreeImpl implements RTree {
 
             if (n.isLeaf){
                 for (Entry e : n.entries){
-                    if (query.contains(new Point(e.mbr.xmin, e.mbr.ymin))){
+                    if (rectangle.contains(new Point(e.mbr.getXMin(), e.mbr.getYMin()))){
                         results.add(e.userPoint);
                     }
                 }
             } else {
                 for (Entry e : n.entries){
-                    if (e.child!=null && e.child.mbr!=null && e.child.mbr.intersects(query)){
+                    if (e.child!=null && e.child.mbr!=null && intersects(e.child.mbr,rectangle)){
                         dq.addLast(e.child);
                     } else {
                         visual.markPruned(e.child);
@@ -484,7 +452,14 @@ public class RTreeImpl implements RTree {
         visual.update(root);
 
         PriorityQueue<Object[]> pq = new PriorityQueue<>(Comparator.comparingDouble(a -> (double)a[0]));
-        pq.add(new Object[]{ DRect.mindist(root.mbr==null? new DRect(0,0,0,0):root.mbr, source), 0, root }); // 0=node, 1=entry
+        if (root.mbr != null){
+            pq.add(new Object[]{ mindist(root.mbr, source), 0, root }); // 0=node, 1=entry
+        }
+        else {
+            var distance = Math.pow(source.getX(),2)+Math.pow(source.getY(),2);
+            pq.add(new Object[]{ distance , 0, root });
+        }
+
 
         ArrayList<Point> knn = new ArrayList<>();
         while(!pq.isEmpty() && knn.size()<maxCount){
@@ -500,14 +475,14 @@ public class RTreeImpl implements RTree {
 
                 if (n.isLeaf){
                     for (Entry e : n.entries){
-                        double d = Math.hypot(x - e.mbr.xmin, y - e.mbr.ymin);
+                        double d = Math.hypot(x - e.mbr.getXMin(), y - e.mbr.getYMin());
                         pq.add(new Object[]{ d, 1, e });
                     }
                     visual.redraw();
                 } else {
                     for (Entry e : n.entries){
                         if (e.child!=null && e.child.mbr!=null){
-                            double d = DRect.mindist(e.child.mbr, source);
+                            double d = mindist(e.child.mbr, source);
                             pq.add(new Object[]{ d, 0, e.child });
                         }
                     }
@@ -614,11 +589,11 @@ public class RTreeImpl implements RTree {
     }
 
     // ---------- Core algorithms ----------
-    private Node chooseLeaf(Node n, DRect m){
+    private Node chooseLeaf(Node n, Rectangle m){
         if (n.isLeaf) return n;
         Entry best=null; double bestEnl=Double.POSITIVE_INFINITY, bestArea=Double.POSITIVE_INFINITY;
         for (Entry e : n.entries){
-            double enl = DRect.enlargement(e.mbr, m), area = e.mbr.area();
+            double enl = enlargement(e.mbr, m), area = e.mbr.getArea();
             if (enl < bestEnl || (enl==bestEnl && area < bestArea)){
                 best = e; bestEnl = enl; bestArea = area;
             }
@@ -627,12 +602,13 @@ public class RTreeImpl implements RTree {
     }
 
     // chooseLeaf with path trace (for visualization)
-    private Node chooseLeafTrace(Node n, DRect m, List<Node> path){
+    private Node chooseLeafTrace(Node n, Rectangle m, List<Node> path){
         path.add(n);
         if (n.isLeaf) return n;
         Entry best=null; double bestEnl=Double.POSITIVE_INFINITY, bestArea=Double.POSITIVE_INFINITY;
         for (Entry e : n.entries){
-            double enl = DRect.enlargement(e.mbr, m), area = e.mbr.area();
+            double area = e.mbr.getArea();
+            double enl = enlargement(e.mbr, m);
             if (enl < bestEnl || (enl==bestEnl && area < bestArea)){
                 best = e; bestEnl = enl; bestArea = area;
             }
@@ -648,7 +624,7 @@ public class RTreeImpl implements RTree {
         int i1=-1,i2=-1; double worst=-1;
         for(int i=0;i<E.size();i++){
             for(int j=i+1;j<E.size();j++){
-                double d = DRect.enlargement(E.get(i).mbr, E.get(j).mbr);
+                double d = enlargement(E.get(i).mbr, E.get(j).mbr);
                 if (d > worst){ worst=d; i1=i; i2=j; }
             }
         }
@@ -667,15 +643,15 @@ public class RTreeImpl implements RTree {
 
             Entry pick=null; double diff=-1;
             for (Entry cand : E){
-                double d1 = DRect.enlargement(g1.mbr, cand.mbr);
-                double d2 = DRect.enlargement(g2.mbr, cand.mbr);
+                double d1 = enlargement(g1.mbr, cand.mbr);
+                double d2 = enlargement(g2.mbr, cand.mbr);
                 double dv = Math.abs(d1 - d2);
                 if (dv > diff){ diff=dv; pick=cand; }
             }
             E.remove(pick);
-            double inc1 = DRect.enlargement(g1.mbr, pick.mbr);
-            double inc2 = DRect.enlargement(g2.mbr, pick.mbr);
-            if (inc1 < inc2 || (inc1==inc2 && g1.mbr.area()<g2.mbr.area())){
+            double inc1 = enlargement(g1.mbr, pick.mbr);
+            double inc2 = enlargement(g2.mbr, pick.mbr);
+            if (inc1 < inc2 || (inc1==inc2 && g1.mbr.getArea()<g2.mbr.getArea())){
                 g1.entries.add(pick); g1.recompute();
             } else {
                 g2.entries.add(pick); g2.recompute();
@@ -730,10 +706,9 @@ public class RTreeImpl implements RTree {
             for (Entry e : n.entries) if (same(e.userPoint, p)) return n;
             return null;
         }
-        DRect pr = rectFrom(p);
         for (Entry e : n.entries){
             if (e.child!=null && e.child.mbr!=null &&
-                    (e.child.mbr.contains(new Point(pr.xmin,pr.ymin)) || e.child.mbr.intersects(pr))){
+                    e.child.mbr.contains(p)){
                 Node f = findLeaf(e.child, p);
                 if (f!=null) return f;
             }
@@ -748,10 +723,9 @@ public class RTreeImpl implements RTree {
             for (Entry e : n.entries) if (same(e.userPoint, p)) return n;
             return null;
         }
-        DRect pr = rectFrom(p);
         for (Entry e : n.entries){
             if (e.child!=null && e.child.mbr!=null &&
-                    (e.child.mbr.contains(new Point(pr.xmin,pr.ymin)) || e.child.mbr.intersects(pr))){
+                    e.child.mbr.contains(p)){
                 Node f = findLeafTrace(e.child, p, path);
                 if (f!=null) return f;
             }

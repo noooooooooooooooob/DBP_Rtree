@@ -6,12 +6,10 @@ public class Rectangle {
 	private Point leftTop;
 	private Point rightBottom;
 
-
 	public Rectangle(Point leftTop, Point rightBottom) {
 		super();
 		this.leftTop = leftTop;
 		this.rightBottom = rightBottom;
-        System.out.println(getXMin()+","+getXMax()+","+getYMin()+","+getYMax());
 	}
     public Rectangle(){
         super();
