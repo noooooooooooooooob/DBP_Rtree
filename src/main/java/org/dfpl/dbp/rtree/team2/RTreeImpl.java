@@ -390,6 +390,7 @@ public class RTreeImpl implements RTree {
         size++;
         visual.setLastInserted(point);
         visual.update(root);
+        visual.redraw();
     }
 
     @Override
