@@ -379,6 +379,7 @@ public class RTreeImpl implements RTree {
             if (nn != null){
                 p.entries.add(new Entry(nn.mbr.copy(), nn));
                 nn.parent = p;
+                p.recompute();
                 if (p.entries.size() > MAX_ENTRIES){
                     Node ps = splitNode(p);
                     visual.flashSplit(p, ps);
