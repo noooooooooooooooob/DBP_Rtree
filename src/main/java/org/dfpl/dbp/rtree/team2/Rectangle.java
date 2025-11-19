@@ -8,8 +8,9 @@ public class Rectangle {
 
 	public Rectangle(Point leftTop, Point rightBottom) {
 		super();
-		this.leftTop = leftTop;
-		this.rightBottom = rightBottom;
+
+		this.leftTop = new Point(Math.min(leftTop.getX(), rightBottom.getX()), Math.max(leftTop.getY(), rightBottom.getY()));
+		this.rightBottom = new Point(Math.max(leftTop.getX(), rightBottom.getX()), Math.min(leftTop.getY(), rightBottom.getY()));
 	}
     public Rectangle(){
         super();
