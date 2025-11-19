@@ -339,7 +339,7 @@ public class RTreeImpl implements RTree {
 
         // 해당 점과 가장 가까운 점을 찾기
         List<Node> path = new ArrayList<>();
-        Node leaf = chooseLeafTrace(root, rectFrom(point), path);
+        Node leaf = chooseLeaf(root, rectFrom(point), path);
         visual.showPath(path);
 
         // 삽입
@@ -530,48 +530,7 @@ public class RTreeImpl implements RTree {
         leaf.entries.remove(t);
         size--;
 
-        // CondenseTree with viz
-        ArrayList<Node> reinsertSubtrees = new ArrayList<>();
-        Node cur = leaf;
-        while (cur != null){
-            if (cur != root && cur.entries.size() < MIN_ENTRIES){
-                visual.flashUnderflow(cur);
-
-                Node parent = cur.parent;
-                Entry link=null; for (Entry e : parent.entries) if (e.child==cur){ link=e; break; }
-                if (link!=null) parent.entries.remove(link);
-
-                if (cur.isLeaf){
-                    for (Entry e : cur.entries){
-                        // 재삽입 시각화
-                        visual.flashReinsert(e.userPoint);
-                        List<Node> rPath = new ArrayList<>();
-                        Node where = chooseLeafTrace(root, rectFrom(e.userPoint), rPath);
-                        visual.showPath(rPath);
-                        // 실제 재삽입
-                        where.entries.add(new Entry(rectFrom(e.userPoint), e.userPoint));
-                        where.recompute();
-                        Node sp = null;
-                        if (where.entries.size()>MAX_ENTRIES){
-                            sp = splitNode(where);
-                            visual.flashSplit(where, sp);
-                        }
-                        adjustTree(where, sp);
-                    }
-                } else {
-                    for (Entry e : cur.entries) reinsertSubtrees.add(e.child);
-                }
-                cur.entries.clear();
-                parent.recompute();
-                visual.markVisited(parent); visual.redraw();
-                cur = parent;
-            } else {
-                cur.recompute();
-                visual.markVisited(cur); visual.redraw();
-                cur = cur.parent;
-            }
-        }
-        for (Node s : reinsertSubtrees) collectReinsertWithViz(s);
+        condenseTree(leaf);
 
         // 루트 수축
         while (!root.isLeaf && root.entries.size()==1){
@@ -590,21 +549,9 @@ public class RTreeImpl implements RTree {
         return size==0;
     }
 
-    // ---------- Core algorithms ----------
-    private Node chooseLeaf(Node n, Rectangle m){
-        if (n.isLeaf) return n;
-        Entry best=null; double bestEnl=Double.POSITIVE_INFINITY, bestArea=Double.POSITIVE_INFINITY;
-        for (Entry e : n.entries){
-            double enl = enlargement(e.mbr, m), area = e.mbr.getArea();
-            if (enl < bestEnl || (enl==bestEnl && area < bestArea)){
-                best = e; bestEnl = enl; bestArea = area;
-            }
-        }
-        return chooseLeaf(best.child, m);
-    }
 
     // chooseLeaf with path trace (for visualization)
-    private Node chooseLeafTrace(Node n, Rectangle m, List<Node> path){
+    private Node chooseLeaf(Node n, Rectangle m, List<Node> path){
         path.add(n);
         if (n.isLeaf) return n;
         Entry best=null; double bestEnl=Double.POSITIVE_INFINITY, bestArea=Double.POSITIVE_INFINITY;
@@ -615,7 +562,7 @@ public class RTreeImpl implements RTree {
                 best = e; bestEnl = enl; bestArea = area;
             }
         }
-        return chooseLeafTrace(best.child, m, path);
+        return chooseLeaf(best.child, m, path);
     }
 
     private Node splitNode(Node n){
@@ -738,8 +685,10 @@ public class RTreeImpl implements RTree {
     private void condenseTree(Node n){
         ArrayList<Node> reinsertSubtrees = new ArrayList<>();
         Node cur = n;
-        while(cur != null){
+        while (cur != null){
             if (cur != root && cur.entries.size() < MIN_ENTRIES){
+                visual.flashUnderflow(cur);
+
                 Node parent = cur.parent;
                 Entry link=null; for (Entry e : parent.entries) if (e.child==cur){ link=e; break; }
                 if (link!=null) parent.entries.remove(link);
@@ -751,30 +700,25 @@ public class RTreeImpl implements RTree {
                 }
                 cur.entries.clear();
                 parent.recompute();
+                visual.markVisited(parent); visual.redraw();
                 cur = parent;
+
             } else {
                 cur.recompute();
+                visual.markVisited(cur); visual.redraw();
                 cur = cur.parent;
             }
         }
         for (Node s : reinsertSubtrees) collectReinsert(s);
     }
 
-    private void collectReinsert(Node n){
-        if (n.isLeaf){
-            for (Entry e : n.entries) reinsertPoint(e.userPoint);
-        } else {
-            for (Entry e : n.entries) collectReinsert(e.child);
-        }
-    }
-
     // delete용: 서브트리 재삽입 + 과정 표시
-    private void collectReinsertWithViz(Node n){
+    private void collectReinsert(Node n){
         if (n.isLeaf){
             for (Entry e : n.entries){
                 visual.flashReinsert(e.userPoint);
                 List<Node> rPath = new ArrayList<>();
-                Node where = chooseLeafTrace(root, rectFrom(e.userPoint), rPath);
+                Node where = chooseLeaf(root, rectFrom(e.userPoint), rPath);
                 visual.showPath(rPath);
                 where.entries.add(new Entry(rectFrom(e.userPoint), e.userPoint));
                 where.recompute();
@@ -782,17 +726,25 @@ public class RTreeImpl implements RTree {
                 adjustTree(where, sp);
             }
         } else {
-            for (Entry e : n.entries) collectReinsertWithViz(e.child);
+            for (Entry e : n.entries) collectReinsert(e.child);
         }
     }
 
     private void reinsertPoint(Point p){
-        Node leaf = chooseLeaf(root, rectFrom(p));
-        leaf.entries.add(new Entry(rectFrom(p), p));
-        leaf.recompute();
+        // 재삽입 시각화
+        visual.flashReinsert(p);
+        List<Node> rPath = new ArrayList<>();
+        Node where = chooseLeaf(root, rectFrom(p), rPath);
+        visual.showPath(rPath);
+        // 실제 재삽입
+        where.entries.add(new Entry(rectFrom(p), p));
+        where.recompute();
         Node sp = null;
-        if (leaf.entries.size() > MAX_ENTRIES) sp = splitNode(leaf);
-        adjustTree(leaf, sp);
+        if (where.entries.size()>MAX_ENTRIES){
+            sp = splitNode(where);
+            visual.flashSplit(where, sp);
+        }
+        adjustTree(where, sp);
     }
 
     private boolean contains(Point p){ return findLeaf(root, p) != null; }
