@@ -1,951 +1,722 @@
-package org.dfpl.dbp.rtree.team2;
+package org.dfpl.dbp.rtree;
 
-import javax.swing.*;
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.PriorityQueue;
 
 public class RTreeImpl implements RTree {
 
-    // ---------- R-Tree parameters ----------
-    private static final int MAX_ENTRIES = 4; // M
-    private static final int MIN_ENTRIES = 2; // m
+    // 요건 4-way R-Tree로 구현한다.
+    // Maven Project로 만든다.
+    // 기존의 R-Tree를 활용하지 않는다.
+    // 여러분의 프로젝트에는 최소한의 dependency가 포함되어 있어야 함.
+    // 멤버 변수의 활용은 어느정도 자유로움
+    // 단, R-Tree 구현이어야 하고, 요행을 바라지 않는다.
 
-    // ---------- geometry helpers (Rectangle ← leftTop/rightBottom 버전 대응) ----------
+    private static final int MAX_CHILDREN = 4;
+    private static final int MIN_CHILDREN = MAX_CHILDREN / 2;
 
-    private static double xMin(Rectangle r) {
-        return Math.min(r.getLeftTop().getX(), r.getRightBottom().getX());
+    private Node root = null;
+
+    public Node getRoot() {
+        return root;
     }
 
-    private static double xMax(Rectangle r) {
-        return Math.max(r.getLeftTop().getX(), r.getRightBottom().getX());
+    private RTreeListener listener = null;
+
+    public void setRTreeListener(RTreeListener listener) {
+        this.listener = listener;
     }
-
-    private static double yMin(Rectangle r) {
-        return Math.min(r.getLeftTop().getY(), r.getRightBottom().getY());
-    }
-
-    private static double yMax(Rectangle r) {
-        return Math.max(r.getLeftTop().getY(), r.getRightBottom().getY());
-    }
-
-    private static double area(Rectangle r) {
-        double w = xMax(r) - xMin(r);
-        double h = yMax(r) - yMin(r);
-        if (w < 0) w = 0;
-        if (h < 0) h = 0;
-        return w * h;
-    }
-
-    private static Rectangle rectFrom(Point p) {
-        return new Rectangle(new Point(p.getX(), p.getY()),
-                new Point(p.getX(), p.getY()));
-    }
-
-    private static Rectangle copyRect(Rectangle r) {
-        return new Rectangle(
-                new Point(r.getLeftTop().getX(), r.getLeftTop().getY()),
-                new Point(r.getRightBottom().getX(), r.getRightBottom().getY())
-        );
-    }
-
-    private static Rectangle unionRect(Rectangle a, Rectangle b) {
-        double nx1 = Math.min(xMin(a), xMin(b));
-        double ny1 = Math.min(yMin(a), yMin(b));
-        double nx2 = Math.max(xMax(a), xMax(b));
-        double ny2 = Math.max(yMax(a), yMax(b));
-        return new Rectangle(new Point(nx1, ny1), new Point(nx2, ny2));
-    }
-
-    private static double enlargement(Rectangle a, Rectangle b) {
-        double oldArea = area(a);
-        Rectangle u = unionRect(a, b);
-        double newArea = area(u);
-        return newArea - oldArea;
-    }
-
-    private static boolean intersects(Rectangle a, Rectangle b) {
-        if (xMax(a) < xMin(b) || xMin(a) > xMax(b)) return false;
-        if (yMax(a) < yMin(b) || yMin(a) > yMax(b)) return false;
-        return true;
-    }
-
-    private static boolean rectContains(Rectangle r, Point p) {
-        double x = p.getX();
-        double y = p.getY();
-        return x >= xMin(r) && x <= xMax(r) &&
-                y >= yMin(r) && y <= yMax(r);
-    }
-
-    // 사각형과 점 사이의 최소 거리 (kNN에서 사용)
-    private static double mindist(Rectangle r, Point p) {
-        double x = p.getX();
-        double y = p.getY();
-        double dx = (x < xMin(r)) ? xMin(r) - x : (x > xMax(r) ? x - xMax(r) : 0);
-        double dy = (y < yMin(r)) ? yMin(r) - y : (y > yMax(r) ? y - yMax(r) : 0);
-        return Math.hypot(dx, dy);
-    }
-
-    private static boolean same(Point a, Point b) {
-        return Double.compare(a.getX(), b.getX()) == 0 &&
-                Double.compare(a.getY(), b.getY()) == 0;
-    }
-
-    // ---------- Tree structures ----------
-
-    private static final AtomicLong NODE_IDS = new AtomicLong(1);
-
-    private static class Entry {
-        Rectangle mbr;
-        Node child;      // null이면 leaf 엔트리
-        Point userPoint; // leaf에서만 사용
-
-        Entry(Rectangle m, Node c) { mbr = m; child = c; }
-        Entry(Rectangle m, Point p) { mbr = m; userPoint = p; }
-    }
-
-    private static class Node {
-        final long id = NODE_IDS.getAndIncrement();
-        boolean isLeaf;
-        ArrayList<Entry> entries = new ArrayList<>();
-        Node parent;
-        Rectangle mbr; // 이 노드를 커버하는 MBR
-
-        Node(boolean isLeaf) { this.isLeaf = isLeaf; }
-
-        void recompute() {
-            if (entries.isEmpty()) {
-                mbr = null;
-                return;
-            }
-            Rectangle agg = copyRect(entries.get(0).mbr);
-            for (int i = 1; i < entries.size(); i++) {
-                agg = unionRect(agg, entries.get(i).mbr);
-            }
-            mbr = agg;
-        }
-    }
-
-    private Node root = new Node(true);
-    private int size = 0;
-
-    // ---------- Visualization ----------
-
-    private static class VisualFrame extends JFrame {
-        VisualFrame() {
-            super("R-Tree Visualizer (4-way)");
-            setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            setSize(820, 820);
-            setLocationByPlatform(true);
-        }
-    }
-
-    private class Visual extends JPanel {
-        private final VisualFrame frame;
-
-        // 스냅샷용 노드 (실제 트리와 분리)
-        private class SNode {
-            long id;
-            boolean isLeaf;
-            Rectangle mbr;
-            java.util.List<SNode> children = new ArrayList<>();
-            java.util.List<Point> points  = new ArrayList<>(); // leaf points
-        }
-
-        private SNode snapRoot;
-
-        // 월드 좌표 범위 (자동 스케일링용)
-        double wx1 = 0, wy1 = 0, wx2 = 200, wy2 = 200;
-
-        // 마킹용
-        Rectangle lastQuery;
-        Point lastSource;
-        Point lastInserted, lastDeleted;
-        java.util.Set<Long> visited = Collections.synchronizedSet(new HashSet<>());
-        java.util.Set<Long> pruned  = Collections.synchronizedSet(new HashSet<>());
-        java.util.List<Point> knnSoFar = new ArrayList<>();
-
-        // 스텝 진행용 플래그
-        private volatile boolean stepRequested = false;
-
-        Visual() {
-            frame = new VisualFrame();
-            frame.setContentPane(this);
-
-            // 키 입력으로 스텝 진행
-            frame.addKeyListener(new KeyAdapter() {
-                @Override
-                public void keyPressed(KeyEvent e) {
-                    stepRequested = true;
-                }
-            });
-
-            frame.setFocusable(true);
-            frame.setVisible(true);
-            frame.requestFocus();
-        }
-
-        void resetMarks() {
-            lastQuery = null;
-            lastSource = null;
-            lastInserted = null;
-            lastDeleted = null;
-            visited.clear();
-            pruned.clear();
-            knnSoFar = new ArrayList<>();
-        }
-
-        private SNode snap(Node n) {
-            if (n == null) return null;
-            SNode s = new SNode();
-            s.id = n.id;
-            s.isLeaf = n.isLeaf;
-            s.mbr = (n.mbr == null) ? null : copyRect(n.mbr);
-            if (n.isLeaf) {
-                for (Entry e : n.entries) {
-                    if (e.userPoint != null) {
-                        s.points.add(new Point(e.userPoint.getX(), e.userPoint.getY()));
-                    }
-                }
-            } else {
-                for (Entry e : n.entries) {
-                    if (e.child != null) {
-                        SNode childSnap = snap(e.child);
-                        if (childSnap != null) {
-                            s.children.add(childSnap);
-                        }
-                    }
-                }
-            }
-            return s;
-        }
-
-        void update(Node r) {
-            this.snapRoot = snap(r);
-
-            repaint();
-        }
-
-
-        private void waitForStep() {
-            stepRequested = false;
-            while (!stepRequested) {
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException ignored) {}
-            }
-        }
-
-        void redrawStep() {
-            repaint();
-            waitForStep();
-        }
-
-        void setQuery(Rectangle q) { lastQuery = q; }
-        void setSource(Point s) { lastSource = s; }
-        void setLastInserted(Point p) { lastInserted = p; }
-        void setLastDeleted(Point p) { lastDeleted = p; }
-        void setKnn(java.util.List<Point> l) { knnSoFar = new ArrayList<>(l); }
-        void markVisited(Node n) { if (n != null) visited.add(n.id); }
-        void markPruned(Node n) { if (n != null) pruned.add(n.id); }
-
-        void showPath(java.util.List<Node> path) {
-            if (path == null || path.isEmpty()) return;
-            for (Node n : path) {
-                markVisited(n);
-                redrawStep();
-            }
-        }
-
-        void flashSplit(Node left, Node right) {
-            if (left == null && right == null) return;
-            for (int i = 0; i < 2; i++) {
-                if (left != null) markVisited(left);
-                if (right != null) markVisited(right);
-                redrawStep();
-                if (left != null) pruned.add(left.id);
-                if (right != null) pruned.add(right.id);
-                redrawStep();
-                if (left != null) { visited.remove(left.id); pruned.remove(left.id); }
-                if (right != null) { visited.remove(right.id); pruned.remove(right.id); }
-            }
-        }
-
-        void flashUnderflow(Node n) {
-            if (n == null) return;
-            for (int i = 0; i < 2; i++) {
-                markPruned(n);
-                redrawStep();
-                pruned.remove(n.id);
-                redrawStep();
-            }
-        }
-
-        void flashReinsert(Point p) {
-            setLastInserted(p);
-            redrawStep();
-            setLastInserted(null);
-            redrawStep();
-        }
-
-        private void autoFitSnapshot(SNode r) {
-            if (r == null || r.mbr == null) {
-                wx1 = 0; wy1 = 0; wx2 = 200; wy2 = 200;
-                return;
-            }
-            wx1 = xMin(r.mbr);
-            wy1 = yMin(r.mbr);
-            wx2 = xMax(r.mbr);
-            wy2 = yMax(r.mbr);
-            double dx = (wx2 - wx1) * 0.05 + 1;
-            double dy = (wy2 - wy1) * 0.05 + 1;
-            wx1 -= dx; wy1 -= dy; wx2 += dx; wy2 += dy;
-        }
-
-        private java.awt.Point map(double x, double y, int W, int H) {
-            double nx = (x - wx1) / Math.max(1e-9, (wx2 - wx1));
-            double ny = (y - wy1) / Math.max(1e-9, (wy2 - wy1));
-            int sx = (int) Math.round(40 + nx * (W - 80));
-            int sy = (int) Math.round(H - 40 - ny * (H - 80)); // 위쪽이 +Y
-            return new java.awt.Point(sx, sy);
-        }
-
-        private java.awt.Rectangle toAwtRect(Rectangle r, int W, int H) {
-            java.awt.Point a = map(xMin(r), yMin(r), W, H);
-            java.awt.Point b = map(xMax(r), yMax(r), W, H);
-            int x = Math.min(a.x, b.x);
-            int y = Math.min(a.y, b.y);
-            int w = Math.abs(a.x - b.x);
-            int h = Math.abs(a.y - b.y);
-            return new java.awt.Rectangle(x, y, w, h);
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            Graphics2D g2 = (Graphics2D) g;
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
-                    RenderingHints.VALUE_ANTIALIAS_ON);
-
-            int W = getWidth();
-            int H = getHeight();
-
-            g2.setColor(Color.white);
-            g2.fillRect(0, 0, W, H);
-            g2.setColor(Color.lightGray);
-            g2.drawRect(20, 20, W - 40, H - 40);
-
-            if (snapRoot != null) {
-                drawNode(g2, snapRoot, 0, W, H);
-            }
-
-            // 검색 박스 표시
-            if (lastQuery != null) {
-                g2.setStroke(new BasicStroke(2.5f));
-                g2.setColor(new Color(220, 0, 0, 180));
-                java.awt.Rectangle rr = toAwtRect(lastQuery, W, H);
-                g2.draw(rr);
-                g2.setStroke(new BasicStroke(1f));
-            }
-
-            // kNN 소스 점
-            if (lastSource != null) {
-                java.awt.Point ps = map(lastSource.getX(), lastSource.getY(), W, H);
-                g2.setColor(new Color(0, 120, 255));
-                int r = 6;
-                g2.fillOval(ps.x - r, ps.y - r, 2 * r, 2 * r);
-                g2.drawString("source", ps.x + 8, ps.y - 8);
-            }
-
-            // 마지막 삽입/삭제 포인트 표시
-            if (lastInserted != null) {
-                java.awt.Point sp = map(lastInserted.getX(), lastInserted.getY(), W, H);
-                g2.setColor(new Color(0, 170, 0));
-                int r = 5;
-                g2.fillOval(sp.x - r, sp.y - r, 2 * r, 2 * r);
-
-                String label = String.format("inserted (%.1f, %.1f)",
-                        lastInserted.getX(), lastInserted.getY());
-                g2.drawString(label, sp.x + 8, sp.y - 8);
-            }
-
-            if (lastDeleted != null) {
-                java.awt.Point sp = map(lastDeleted.getX(), lastDeleted.getY(), W, H);
-                g2.setColor(new Color(190, 0, 190));
-                int r = 5;
-                g2.fillOval(sp.x - r, sp.y - r, 2 * r, 2 * r);
-
-                String label = String.format("deleted (%.1f, %.1f)",
-                        lastDeleted.getX(), lastDeleted.getY());
-                g2.drawString(label, sp.x + 8, sp.y - 8);
-            }
-
-            // kNN 결과 포인트 강조 + 좌표 라벨 표시
-            if (!knnSoFar.isEmpty()) {
-                g2.setColor(new Color(255, 0, 0));
-
-                int idx = 1; // kNN 순서 표시 (1st, 2nd, 3rd)
-                for (Point p : knnSoFar) {
-                    java.awt.Point sp = map(p.getX(), p.getY(), W, H);
-                    int r = 5;
-
-                    // 점 찍기
-                    g2.fillOval(sp.x - r, sp.y - r, 2 * r, 2 * r);
-
-                    // label: k(#) (x,y)
-                    String label = String.format("k%d (%.1f, %.1f)", idx, p.getX(), p.getY());
-                    g2.drawString(label, sp.x + 6, sp.y - 6);
-
-                    idx++;
-                }
-            }
-        }
-
-        private void drawNode(Graphics2D g2, SNode n, int depth, int W, int H) {
-            Color[] pal = {
-                    new Color(0, 0, 0, 30),
-                    new Color(0, 120, 255, 40),
-                    new Color(0, 170, 0, 40),
-                    new Color(255, 140, 0, 40),
-                    new Color(190, 0, 190, 40)
-            };
-            Color fill = pal[depth % pal.length];
-
-            if (n.mbr != null) {
-                java.awt.Rectangle rr = toAwtRect(n.mbr, W, H);
-                g2.setColor(fill);
-                g2.fill(rr);
-
-                if (pruned.contains(n.id)) g2.setColor(new Color(160, 160, 160));
-                else if (visited.contains(n.id)) g2.setColor(Color.red);
-                else g2.setColor(Color.darkGray);
-
-                g2.setStroke(new BasicStroke(1.2f));
-                g2.draw(rr);
-            }
-
-            if (n.isLeaf) {
-                g2.setColor(Color.black);
-                for (Point p : n.points) {
-                    java.awt.Point sp = map(p.getX(), p.getY(), W, H);
-                    int d = 4;
-                    g2.fillOval(sp.x - d, sp.y - d, 2 * d, 2 * d);
-                }
-            } else {
-                for (SNode ch : n.children) {
-                    drawNode(g2, ch, depth + 1, W, H);
-                }
-            }
-        }
-    }
-
-    private final Visual visual = new Visual();
-
-    // ---------- ctor ----------
-    public RTreeImpl() {
-        visual.update(root); // empty tree 표시
-    }
-
-    // ---------- Public API 구현 ----------
 
     @Override
     public void add(Point point) {
-        if (contains(point)) return;
-
-        visual.resetMarks();
-        visual.update(root); // 현재 상태 스냅샷
-
-        Rectangle m = rectFrom(point);
-        java.util.List<Node> path = new ArrayList<>();
-        Node leaf = chooseLeaf(root, m, path);
-
-        visual.showPath(path); // 삽입 경로 시각화
-
-        leaf.entries.add(new Entry(m, point));
-        leaf.recompute();
-
-        Node split = null;
-        if (leaf.entries.size() > MAX_ENTRIES) {
-            split = splitNode(leaf);
-            visual.flashSplit(leaf, split);
+        if (root == null) {
+            // 트리가 비어있는 경우, 새로운 루트 노드 생성
+            // Point 하나만 포함하는 Rectangle을 MBR로 설정
+            // 루트의 레벨은 항상 0
+            ArrayList<Point> initialPoints = new ArrayList<>();
+            initialPoints.add(point);
+            root = Node.createLeaf(new Rectangle(point, point), null, initialPoints, 0);
+            return;
         }
 
-        Node cur = leaf, nn = split;
-        while (true) {
-            if (cur.parent == null) {
-                if (nn != null) {
-                    Node newRoot = new Node(false);
-                    newRoot.entries.add(new Entry(copyRect(cur.mbr), cur));
-                    newRoot.entries.add(new Entry(copyRect(nn.mbr), nn));
-                    cur.parent = newRoot;
-                    nn.parent = newRoot;
-                    newRoot.recompute();
-                    root = newRoot;
-                } else {
-                    cur.recompute();
-                    root = cur;
-                }
-                break;
-            }
-            Node p = cur.parent;
-            for (Entry e : p.entries) {
-                if (e.child == cur) {
-                    e.mbr = copyRect(cur.mbr);
-                    break;
-                }
-            }
-            p.recompute();
+        if (contains(point) != null) {
+            // 이미 트리에 존재하는 포인트는 삽입하지 않음
+            return;
+        }
 
-            visual.markVisited(p);
-            visual.update(root);
-            visual.redrawStep();
+        // 노드를 넣을 적절한 리프 노드 찾기
+        // MBR 확장이 가장 적은 경로를 따라 내려감
+        Node leafNode = chooseLeaf(root, point);
 
-            if (nn != null) {
-                p.entries.add(new Entry(copyRect(nn.mbr), nn));
-                nn.parent = p;
-                p.recompute();
+        // 리프 노드에 포인트 추가
+        List<Point> points = leafNode.getPoints();
+        points.add(point);
 
-                if (p.entries.size() > MAX_ENTRIES) {
-                    Node ps = splitNode(p);
-                    visual.flashSplit(p, ps);
-                    cur = p;
-                    nn = ps;
-                } else {
-                    cur = p;
-                    nn = null;
-                }
+        // 노드가 초과되었는지 확인 (MAX_CHILDREN 초과)
+        if (points.size() > MAX_CHILDREN) {
+            // 초과되었으면 노드를 두 개로 분할
+            // 분할 과정에서 부모의 MBR도 자동으로 업데이트됨
+            splitNode(leafNode);
+        } else {
+            // 초과하지 않았으면 노드들의 MBR만 업데이트
+            // 리프에서 루트까지 올라가며 각 노드의 MBR 재계산
+            adjustTreeAfterInsertion(leafNode);
+        }
+
+        // 리스너 호출
+        if (listener != null) {
+            listener.onRTreeChanged(this);
+        }
+    }
+
+    /**
+     * 삽입 후 리프부터 루트까지 올라가며 MBR 업데이트
+     * 각 레벨에서 모든 자식들의 MBR을 고려하여 부모 MBR 재계산
+     */
+    private void adjustTreeAfterInsertion(Node node) {
+        // 현재 노드의 부모부터 시작
+        Node current = node;
+
+        // 루트에 도달할 때까지 반복
+        while (current != null) {
+            if (current.isLeaf()) {
+                // 리프 노드는 points로부터 MBR 재계산
+                Rectangle updatedMbr = RectangleBuilder.fromPoints(current.getPoints());
+                current.setMbr(updatedMbr);
             } else {
-                cur = p;
+                // 내부 노드는 children으로부터 MBR 재계산
+                Rectangle updatedMbr = RectangleBuilder.fromNodes(current.getChildren());
+                current.setMbr(updatedMbr);
+            }
+            current = current.getParent();
+        }
+    }
+
+    /**
+     * 노드를 분할하고 트리를 재구성하는 함수
+     * 오버플로우(MAX_CHILDREN 초과)가 발생했을 때 호출됨
+     */
+    private void splitNode(Node splitNode) {
+        if (splitNode.isLeaf()) {
+            // === 리프 노드 분할 (최소 면적 분할 적용) ===
+            List<Point> points = splitNode.getPoints();
+            
+            // 최적의 분할을 찾기 위한 변수들
+            double minAreaSum = Double.MAX_VALUE;
+            int bestAxis = 0; // 0: X축, 1: Y축
+            int bestIndex = 0;
+
+            // X축 정렬, Y축 정렬 각각에 대해 (2개, 3개), (3개, 2개) 이렇게 분할을 해보면서 가장 작은 면적 합을 찾음
+            
+            // X축 기준 검사
+            // (2개, 3개), (3개, 2개) 이렇게 분할을 해보면서 가장 작은 면적 합을 찾음
+            points.sort((p1, p2) -> Double.compare(p1.getX(), p2.getX()));
+            for (int i = MIN_CHILDREN; i <= points.size() - MIN_CHILDREN; i++) {
+                Rectangle mbr1 = RectangleBuilder.fromPoints(points.subList(0, i));
+                Rectangle mbr2 = RectangleBuilder.fromPoints(points.subList(i, points.size()));
+                double areaSum = mbr1.getArea() + mbr2.getArea();
+                
+                if (areaSum < minAreaSum) {
+                    minAreaSum = areaSum;
+                    bestAxis = 0;
+                    bestIndex = i;
+                }
+            }
+            
+            // Y축 기준 검사
+            // (2개, 3개), (3개, 2개) 이렇게 분할을 해보면서 가장 작은 면적 합을 찾음
+            points.sort((p1, p2) -> Double.compare(p1.getY(), p2.getY()));
+            for (int i = MIN_CHILDREN; i <= points.size() - MIN_CHILDREN; i++) {
+                Rectangle mbr1 = RectangleBuilder.fromPoints(points.subList(0, i));
+                Rectangle mbr2 = RectangleBuilder.fromPoints(points.subList(i, points.size()));
+                double areaSum = mbr1.getArea() + mbr2.getArea();
+                
+                if (areaSum < minAreaSum) {
+                    minAreaSum = areaSum;
+                    bestAxis = 1;
+                    bestIndex = i;
+                }
+            }
+            
+            // 가장 작은 면적을 가진 최적의 축으로 다시 정렬하여 분할
+            if (bestAxis == 0) {
+                points.sort((p1, p2) -> Double.compare(p1.getX(), p2.getX()));
+            } else {
+                points.sort((p1, p2) -> Double.compare(p1.getY(), p2.getY()));
+            }
+            
+            List<Point> leftPoints = new ArrayList<>(points.subList(0, bestIndex));
+            List<Point> rightPoints = new ArrayList<>(points.subList(bestIndex, points.size()));
+
+            // 각 그룹에 대해 새 리프 노드 생성
+            // fromPoints: 포인트들을 모두 포함하는 MBR 계산
+            // 분할된 리프 노드들은 원래 노드와 동일한 레벨 유지
+            int childLevel = splitNode.getLevel();
+            Node leftNode = Node.createLeaf(RectangleBuilder.fromPoints(leftPoints), splitNode.getParent(), leftPoints,
+                    childLevel);
+            Node rightNode = Node.createLeaf(RectangleBuilder.fromPoints(rightPoints), splitNode.getParent(),
+                    rightPoints, childLevel);
+            
+            // 부모 연결 및 트리 구조 업데이트
+            if (splitNode.getParent() == null) {
+                // === 루트 노드가 분할되는 경우 ===
+                ArrayList<Node> rootChildren = new ArrayList<>();
+                rootChildren.add(leftNode);
+                rootChildren.add(rightNode);
+                Rectangle newRootMbr = RectangleBuilder.fromNodes(rootChildren);
+
+                // 새로운 루트 노드 생성 (내부 노드)
+                // 두 분할된 노드가 자식이 됨
+                Node newRoot = Node.createInternal(newRootMbr, null, rootChildren, 0);
+
+                // 분할된 노드들의 부모를 새 루트로 설정
+                leftNode.setParent(newRoot);
+                rightNode.setParent(newRoot);
+
+                // 트리의 루트 업데이트
+                root = newRoot;
+
+                // 트리가 조정되었으니 레벨 업데이트
+                adjustLevelsAfterPromotion(root);
+            } else {
+                // === 일반 리프 노드가 분할되는 경우 ===
+                Node parent = splitNode.getParent();
+                List<Node> siblings = parent.getChildren();
+
+                // 부모의 자식 목록에서 분할된 노드 제거
+                siblings.remove(splitNode);
+
+                // 두 개의 새 노드를 부모의 자식으로 추가
+                siblings.add(leftNode);
+                siblings.add(rightNode);
+
+                // 새 노드들의 부모 포인터 설정
+                leftNode.setParent(parent);
+                rightNode.setParent(parent);
+                
+                // 부모의 MBR을 모든 자식들을 포함하도록 재계산
+                Rectangle newParentMbr = RectangleBuilder.fromNodes(siblings);
+                parent.setMbr(newParentMbr);
+
+                // 부모 노드도 초과되었는지 확인
+                if (siblings.size() > MAX_CHILDREN) {
+                    // 재귀적으로 부모 노드도 분할
+                    splitNode(parent);
+                } else {
+                    // 부모는 괜찮으면 상위 노드들의 MBR만 업데이트
+                    adjustTreeAfterInsertion(parent);
+                }
+            }
+        } else {
+            // === 내부 노드 분할 (최소 면적 분할 적용) ===
+            List<Node> children = splitNode.getChildren();
+            
+            double minAreaSum = Double.MAX_VALUE;
+            int bestAxis = 0;
+            int bestIndex = 0;
+            
+            // X축 기준 (MBR의 중심점 또는 왼쪽 좌표 기준)
+            children.sort((n1, n2) -> Double.compare(n1.getMbr().getLeftTop().getX(), n2.getMbr().getLeftTop().getX()));
+            for (int i = MIN_CHILDREN; i <= children.size() - MIN_CHILDREN; i++) {
+                Rectangle mbr1 = RectangleBuilder.fromNodes(children.subList(0, i));
+                Rectangle mbr2 = RectangleBuilder.fromNodes(children.subList(i, children.size()));
+                double areaSum = mbr1.getArea() + mbr2.getArea();
+                
+                if (areaSum < minAreaSum) {
+                    minAreaSum = areaSum;
+                    bestAxis = 0;
+                    bestIndex = i;
+                }
+            }
+            
+            // Y축 기준
+            children.sort((n1, n2) -> Double.compare(n1.getMbr().getLeftTop().getY(), n2.getMbr().getLeftTop().getY()));
+            for (int i = MIN_CHILDREN; i <= children.size() - MIN_CHILDREN; i++) {
+                Rectangle mbr1 = RectangleBuilder.fromNodes(children.subList(0, i));
+                Rectangle mbr2 = RectangleBuilder.fromNodes(children.subList(i, children.size()));
+                double areaSum = mbr1.getArea() + mbr2.getArea();
+                
+                if (areaSum < minAreaSum) {
+                    minAreaSum = areaSum;
+                    bestAxis = 1;
+                    bestIndex = i;
+                }
+            }
+            
+            // 최적 분할 적용
+            if (bestAxis == 0) {
+                children.sort((n1, n2) -> Double.compare(n1.getMbr().getLeftTop().getX(), n2.getMbr().getLeftTop().getX()));
+            } else {
+                children.sort((n1, n2) -> Double.compare(n1.getMbr().getLeftTop().getY(), n2.getMbr().getLeftTop().getY()));
+            }
+            
+            List<Node> leftChildren = new ArrayList<>(children.subList(0, bestIndex));
+            List<Node> rightChildren = new ArrayList<>(children.subList(bestIndex, children.size()));
+
+            // 각 그룹의 MBR 계산
+            Rectangle leftMbr = RectangleBuilder.fromNodes(leftChildren);
+            Rectangle rightMbr = RectangleBuilder.fromNodes(rightChildren);
+
+            // 각 그룹에 대해 새 내부 노드 생성
+            // 분할된 내부 노드들은 원래 노드와 동일한 레벨 유지
+            int currentLevel = splitNode.getLevel();
+            Node leftNode = Node.createInternal(leftMbr, splitNode.getParent(), leftChildren, currentLevel);
+            Node rightNode = Node.createInternal(rightMbr, splitNode.getParent(), rightChildren, currentLevel);
+
+            // 자식 노드들의 부모 포인터를 새 노드로 변경
+            for (Node child : leftChildren) {
+                child.setParent(leftNode);
+            }
+            for (Node child : rightChildren) {
+                child.setParent(rightNode);
+            }
+
+            if (splitNode.getParent() == null) {
+                // === 루트 노드가 분할되는 경우 ===
+                ArrayList<Node> rootChildren = new ArrayList<>();
+                rootChildren.add(leftNode);
+                rootChildren.add(rightNode);
+
+                Rectangle newRootMbr = RectangleBuilder.fromNodes(rootChildren);
+
+                // 새로운 루트 노드 생성
+                Node newRoot = Node.createInternal(newRootMbr, null, rootChildren, 0);
+                leftNode.setParent(newRoot);
+                rightNode.setParent(newRoot);
+                root = newRoot;
+                adjustLevelsAfterPromotion(root);
+            } else {
+                // === 일반 노드 분할 처리 ===
+                Node parent = splitNode.getParent();
+                List<Node> siblings = parent.getChildren();
+                siblings.remove(splitNode);
+                siblings.add(leftNode);
+                siblings.add(rightNode);
+                leftNode.setParent(parent);
+                rightNode.setParent(parent);
+                
+                Rectangle newParentMbr = RectangleBuilder.fromNodes(siblings);
+                parent.setMbr(newParentMbr);
+
+                if (siblings.size() > MAX_CHILDREN) {
+                    splitNode(parent);
+                } else {
+                    adjustTreeAfterInsertion(parent);
+                }
+            }
+        }
+    }
+
+    /**
+     * 적절한 리프 노드를 찾는 함수
+     * 루트부터 시작해서 MBR 확장이 가장 적은 경로를 따라 내려감
+     */
+    private Node chooseLeaf(Node start, Point point) {
+        Node current = start;
+
+        // 리프 노드에 도달할 때까지 반복
+        while (current != null) {
+            // 리프 노드에 도달하면 반환
+            if (current.isLeaf()) {
+                return current;
+            }
+
+            // === 내부 노드인 경우 ===
+            // 자식 노드들 중에서 MBR 확장 면적이 가장 작은 노드를 선택
+            List<Node> children = current.getChildren();
+            Node minChild = null;
+            double minEnlargement = Double.MAX_VALUE;
+
+            // 모든 자식 노드를 검사
+            for (Node child : children) {
+                // 자식의 MBR을 point를 포함하도록 확장했을 때의 새 MBR
+                Rectangle mbr = child.getMbr();
+                Rectangle enlarged = mbr.expandToInclude(point);
+
+                // 면적 증가량 계산 (확장 후 면적 - 원래 면적)
+                double enlargement = enlarged.getArea() - mbr.getArea();
+
+                // 최소 면적 증가량을 가진 자식 선택
+                if (enlargement < minEnlargement) {
+                    minEnlargement = enlargement;
+                    minChild = child;
+                }
+            }
+
+            // 선택된 자식으로 포인터 이동
+            current = minChild;
+        }
+
+        // 정상적인 경우 이 코드에 도달하지 않음
+        // 도달했다면 트리 구조에 문제가 있음
+        System.err.println("Error: chooseLeaf가 null을 반환함");
+        return null;
+    }
+
+    /**
+     * 포인트가 트리에 존재하는지 확인해서 Point를 포함하는 노드를 반환
+     * 존재하지 않으면 null 반환
+     */
+    public Node contains(Point point) {
+        if (root == null) {
+            return null;
+        }
+
+        return containsRecursive(root, point);
+    }
+
+    /**
+     * 재귀적으로 노드를 탐색하며 포인트 존재 여부 확인
+     */
+    private Node containsRecursive(Node node, Point point) {
+        // 1. 현재 노드의 MBR이 포인트를 포함하지 않으면 null 반환
+        if (!node.getMbr().contains(point)) {
+            return null;
+        }
+
+        // 2. 리프 노드에 도달한 경우
+        if (node.isLeaf()) {
+            // 리프 노드의 포인트 리스트에서 정확히 일치하는 포인트 찾기
+            List<Point> points = node.getPoints();
+            for (Point p : points) {
+                if (p.ApproxEquals(point)) {
+                    return node;
+                }
+            }
+            return null;
+        }
+
+        // 3. 내부 노드인 경우 - 자식 노드들을 재귀적으로 탐색
+        List<Node> children = node.getChildren();
+        for (Node child : children) {
+            // MBR이 포인트를 포함하는 자식만 탐색
+            if (child.getMbr().contains(point)) {
+                Node result = containsRecursive(child, point);
+                if (result != null) {
+                    return result;
+                }
             }
         }
 
-        size++;
-        visual.setLastInserted(point);
-        visual.update(root);
-        visual.redrawStep();
+        return null;
     }
 
     @Override
     public Iterator<Point> search(Rectangle rectangle) {
-        visual.resetMarks();
-        visual.setQuery(rectangle);
-        visual.update(root);
-
-        ArrayList<Point> results = new ArrayList<>();
-        Deque<Node> dq = new ArrayDeque<>();
-        dq.add(root);
-
-        while (!dq.isEmpty()) {
-            Node n = dq.pollFirst();
-            if (n == null || n.mbr == null) continue;
-
-            if (!intersects(n.mbr, rectangle)) {
-                visual.markPruned(n);
-                visual.update(root);
-                visual.redrawStep();
-                continue;
-            }
-
-            visual.markVisited(n);
-            visual.update(root);
-            visual.redrawStep();
-
-            if (n.isLeaf) {
-                for (Entry e : n.entries) {
-                    Point p = e.userPoint;
-                    if (p != null && rectContains(rectangle, p)) {
-                        results.add(p);
-                    }
-                }
-            } else {
-                for (Entry e : n.entries) {
-                    if (e.child != null && e.child.mbr != null &&
-                            intersects(e.child.mbr, rectangle)) {
-                        dq.addLast(e.child);
-                    } else if (e.child != null) {
-                        visual.markPruned(e.child);
-                        visual.update(root);
-                        visual.redrawStep();
-                    }
-                }
-            }
+        if (root == null) {
+            // 트리가 비어있으면 빈 이터레이터 반환
+            return Collections.emptyIterator();
         }
-        return results.iterator();
+
+        // 루트에서 시작해 재귀적으로 검색
+        ArrayList<Point> result = new ArrayList<>();
+        ArrayList<Node> prunedNodes = new ArrayList<>();
+
+        if (listener != null) {
+            listener.onSearchStarted(this, rectangle);
+        }
+
+        searchRecursive(root, rectangle, result, prunedNodes);
+
+        if (listener != null) {
+            listener.onSearchCompleted(this, result, prunedNodes);
+        }
+        return result.iterator();
+    }
+
+    /**
+     * 재귀적으로 노드를 탐색하며 사각형과 겹치는 포인트 수집
+     */
+    private void searchRecursive(Node current, Rectangle rectangle, ArrayList<Point> result,
+            ArrayList<Node> prunedNodes) {
+        // 현재 노드의 MBR이 검색 사각형과 겹치지 않으면 종료
+
+        boolean isPruned = !current.getMbr().intersects(rectangle);
+
+        if (listener != null) {
+            listener.onSearchStep(current, isPruned);
+        }
+
+        if (isPruned) {
+            prunedNodes.add(current);
+            return;
+        }
+
+        // 리프 노드인 경우, 포인트들을 검사
+        if (current.isLeaf()) {
+            List<Point> points = current.getPoints();
+            for (Point p : points) {
+                if (rectangle.contains(p)) {
+                    result.add(p);
+                }
+            }
+            return;
+        }
+
+        // 내부 노드인 경우, 자식 노드들을 재귀적으로 탐색
+        List<Node> children = current.getChildren();
+        for (Node child : children) {
+            searchRecursive(child, rectangle, result, prunedNodes);
+        }
     }
 
     @Override
     public Iterator<Point> nearest(Point source, int maxCount) {
-        if (source == null || maxCount <= 0) {
-            return Collections.<Point>emptyList().iterator();
-        }
-        if (root.mbr == null) {
-            return Collections.<Point>emptyList().iterator();
+        // 트리가 비어있거나 maxCount가 0 이하인 경우 빈 이터레이터 반환
+        if (root == null || maxCount <= 0) {
+            return Collections.emptyIterator();
         }
 
-        visual.resetMarks();
-        visual.setSource(source);
-        visual.update(root);
+        // 결과 포인트 (거리순)
+        ArrayList<Point> result = new ArrayList<>();
+        // 방문한 노드들 기록
+        ArrayList<Node> visitedNodes = new ArrayList<>();
 
-        ArrayList<Point> knn = new ArrayList<>();
-        double sx = source.getX();
-        double sy = source.getY();
+        // 우선순위 큐: 거리 오름차순
+        // 큐에는 노드 또는 포인트가 들어감
+        PriorityQueue<PQEntry> pq = new PriorityQueue<>((a, b) -> Double.compare(a.dist, b.dist));
 
-        PriorityQueue<Object[]> pq =
-                new PriorityQueue<>(Comparator.comparingDouble(a -> (double) a[0]));
+        if (listener != null) {
+            listener.onKNNStarted(this, source, maxCount);
+        }
 
-        pq.add(new Object[]{ mindist(root.mbr, source), 0, root });
+        // 루트 삽입
+        if (root.isLeaf()) {
+            // 루트가 리프 노드인 경우, 모든 포인트 삽입
+            for (Point p : root.getPoints()) {
+                pq.add(new PQEntry(null, p, p.distance(source)));
+            }
+        } else {
+            // 루트가 내부 노드인 경우, MBR과 소스 포인트 간의 최소 거리 계산해 삽입
+            double d = root.getMbr().minDist(source);
+            pq.add(new PQEntry(root, null, d));
+        }
 
-        while (!pq.isEmpty() && knn.size() < maxCount) {
-            Object[] it = pq.poll();
-            int type = (int) it[1];
+        // 우선순위 큐가 빌 때까지 또는 원하는 개수만큼 찾을 때까지 반복
+        while (!pq.isEmpty() && result.size() < maxCount) {
+            PQEntry entry = pq.poll();
 
-            if (type == 0) {
-                Node n = (Node) it[2];
-                if (n == null || n.mbr == null) continue;
+            // 포인트인 경우 결과에 추가
+            if (entry.point != null) {
+                result.add(entry.point);
 
-                visual.markVisited(n);
-                visual.update(root);
-                visual.redrawStep(); // 노드 팝 단계
+                // 리스너 호출
+                if (listener != null) {
+                    listener.onKNNStep(this, source, result, visitedNodes, entry);
+                }
+                continue;
+            }
 
-                if (n.isLeaf) {
-                    for (Entry e : n.entries) {
-                        Point p = e.userPoint;
-                        if (p == null) continue;
-                        double d = Math.hypot(sx - p.getX(), sy - p.getY());
-                        pq.add(new Object[]{ d, 1, e });
-                    }
-                } else {
-                    for (Entry e : n.entries) {
-                        if (e.child != null && e.child.mbr != null) {
-                            double d = mindist(e.child.mbr, source);
-                            pq.add(new Object[]{ d, 0, e.child });
-                        }
-                    }
+            Node node = entry.node;
+            
+            // 방문한 노드 기록
+            visitedNodes.add(node);
+            // 리스너 호출
+            if (listener != null) {
+                listener.onKNNStep(this, source, result, visitedNodes, entry);
+            }
+            
+            // 노드일 경우, 자식 노드 또는 포인트들을 큐에 삽입
+            if (node.isLeaf()) {
+                for (Point p : node.getPoints()) {
+                    pq.add(new PQEntry(null, p, p.distance(source)));
                 }
             } else {
-                Entry e = (Entry) it[2];
-                if (e.userPoint != null) {
-                    knn.add(e.userPoint);
-                    visual.setKnn(knn);
-                    visual.update(root);
-                    visual.redrawStep(); // NN 확정 단계
+                for (Node child : node.getChildren()) {
+                    // 자식 노드의 MBR과 소스 포인트 간의 최소 거리 계산해 삽입
+                    double d = child.getMbr().minDist(source);
+                    pq.add(new PQEntry(child, null, d));
                 }
             }
         }
 
-        return knn.iterator();
+        // 완료 리스너 호출
+        if (listener != null) {
+            listener.onKNNCompleted(this, source, result);
+        }
+
+        return result.iterator();
+    }
+
+    @Override
+    public boolean isEmpty() {
+        // root의 null 여부로 트리 비어있는지 판단
+        return root == null;
     }
 
     @Override
     public void delete(Point point) {
-        if (point == null) return;
-
-        visual.resetMarks();
-        visual.update(root);   // 현재 상태 먼저 그림
-
-        // 1. 리프 찾기 + 경로 하이라이트
-        List<Node> path = new ArrayList<>();
-        Node leaf = findLeafTrace(root, point, path);
-        if (leaf == null) return;
-        visual.showPath(path);
-
-        // 2. 리프에서 엔트리 제거
-        Entry target = null;
-        for (Entry e : leaf.entries) {
-            if (same(e.userPoint, point)) {
-                target = e;
-                break;
-            }
-        }
-        if (target == null) return;
-        leaf.entries.remove(target);
-        size--;
-
-        // 3. "어느 점을 지웠는지" 표시 켜기
-        visual.setLastDeleted(point);
-        visual.update(root);
-        visual.redrawStep();   // 여기서 첫 화면: 지운 점 + 아직 구조변경 전 트리
-
-        // 4. CondenseTree + 재삽입 (트리 구조 변경), 진행 과정은 그대로
-        condenseTree(leaf);
-
-        // 5. 루트 수축
-        while (!root.isLeaf && root.entries.size() == 1) {
-            root = root.entries.get(0).child;
-            root.parent = null;
-        }
-        if (root != null) root.recompute();
-
-        // 6. 마지막으로 deleted 마커 끄고, 최종 상태 한 번 보여주기
-        visual.setLastDeleted(null);
-        visual.update(root);
-        visual.redrawStep();
-    }
-
-
-
-    @Override
-    public boolean isEmpty() {
-        return size == 0;
-    }
-
-    // ---------- internal helpers ----------
-
-    private Node chooseLeaf(Node n, Rectangle m, java.util.List<Node> path) {
-        path.add(n);
-        if (n.isLeaf) return n;
-
-        Entry best = null;
-        double bestEnl = Double.POSITIVE_INFINITY;
-        double bestArea = Double.POSITIVE_INFINITY;
-
-        for (Entry e : n.entries) {
-            double a = area(e.mbr);
-            double enl = enlargement(e.mbr, m);
-            if (enl < bestEnl || (Math.abs(enl - bestEnl) < 1e-9 && a < bestArea)) {
-                best = e;
-                bestEnl = enl;
-                bestArea = a;
-            }
+        // point가 트리에 존재하는지 확인
+        Node leafNode = contains(point);
+        if (leafNode == null) {
+            // 트리에 존재하지 않으면 삭제할 필요 없음
+            return;
         }
 
-        return chooseLeaf(best.child, m, path);
-    }
+        // 리프 노드에서 포인트 제거
+        List<Point> points = leafNode.getPoints();
+        // ApproxEquals를 사용하여 일치하는 포인트 제거
+        points.removeIf(p -> p.ApproxEquals(point));
 
-    private Node splitNode(Node n) {
-        ArrayList<Entry> E = new ArrayList<>(n.entries);
-        n.entries.clear();
-
-        int i1 = -1, i2 = -1;
-        double worst = -1;
-
-        for (int i = 0; i < E.size(); i++) {
-            for (int j = i + 1; j < E.size(); j++) {
-                double d = enlargement(E.get(i).mbr, E.get(j).mbr);
-                if (d > worst) {
-                    worst = d;
-                    i1 = i;
-                    i2 = j;
-                }
-            }
-        }
-        Entry a = E.remove(i2);
-        Entry b = E.remove(i1);
-
-        Node g1 = n;
-        Node g2 = new Node(n.isLeaf);
-        g2.parent = n.parent;
-
-        g1.entries.add(b);
-        g1.recompute();
-        g2.entries.add(a);
-        g2.recompute();
-
-        while (!E.isEmpty()) {
-            if (g1.entries.size() + E.size() == MIN_ENTRIES) {
-                g1.entries.addAll(E);
-                E.clear();
-                g1.recompute();
-                break;
-            }
-            if (g2.entries.size() + E.size() == MIN_ENTRIES) {
-                g2.entries.addAll(E);
-                E.clear();
-                g2.recompute();
-                break;
-            }
-
-            Entry pick = null;
-            double diff = -1;
-            for (Entry cand : E) {
-                double d1 = enlargement(g1.mbr, cand.mbr);
-                double d2 = enlargement(g2.mbr, cand.mbr);
-                double dv = Math.abs(d1 - d2);
-                if (dv > diff) {
-                    diff = dv;
-                    pick = cand;
-                }
-            }
-            E.remove(pick);
-            double inc1 = enlargement(g1.mbr, pick.mbr);
-            double inc2 = enlargement(g2.mbr, pick.mbr);
-            if (inc1 < inc2 || (Math.abs(inc1 - inc2) < 1e-9 && area(g1.mbr) < area(g2.mbr))) {
-                g1.entries.add(pick);
-                g1.recompute();
-            } else {
-                g2.entries.add(pick);
-                g2.recompute();
-            }
-        }
-
-        if (!n.isLeaf) {
-            for (Entry e : g1.entries) if (e.child != null) e.child.parent = g1;
-            for (Entry e : g2.entries) if (e.child != null) e.child.parent = g2;
-        }
-        return g2;
-    }
-
-    private Node findLeaf(Node n, Point p) {
-        if (n.isLeaf) {
-            for (Entry e : n.entries) if (same(e.userPoint, p)) return n;
-            return null;
-        }
-        for (Entry e : n.entries) {
-            if (e.child != null && e.child.mbr != null &&
-                    rectContains(e.child.mbr, p)) {
-                Node f = findLeaf(e.child, p);
-                if (f != null) return f;
-            }
-        }
-        return null;
-    }
-
-    private Node findLeafTrace(Node n, Point p, java.util.List<Node> path) {
-        path.add(n);
-        if (n.isLeaf) {
-            for (Entry e : n.entries) if (same(e.userPoint, p)) return n;
-            return null;
-        }
-        for (Entry e : n.entries) {
-            if (e.child != null && e.child.mbr != null &&
-                    rectContains(e.child.mbr, p)) {
-                Node f = findLeafTrace(e.child, p, path);
-                if (f != null) return f;
-            }
-        }
-        return null;
-    }
-
-    private void condenseTree(Node n) {
-        ArrayList<Node> reinsertSubtrees = new ArrayList<>();
-        Node cur = n;
-        while (cur != null) {
-            if (cur != root && cur.entries.size() < MIN_ENTRIES) {
-                visual.flashUnderflow(cur);
-
-                Node parent = cur.parent;
-                Entry link = null;
-                for (Entry e : parent.entries) {
-                    if (e.child == cur) {
-                        link = e;
-                        break;
-                    }
-                }
-                if (link != null) parent.entries.remove(link);
-
-                if (cur.isLeaf) {
-                    for (Entry e : cur.entries) {
-                        if (e.userPoint != null) {
-                            visual.flashReinsert(e.userPoint);
-                            reinsertPoint(e.userPoint);
-                        }
-                    }
-                } else {
-                    for (Entry e : cur.entries) {
-                        reinsertSubtrees.add(e.child);
-                    }
-                }
-                cur.entries.clear();
-                parent.recompute();
-                visual.update(root);
-                visual.redrawStep();
-                cur = parent;
-            } else {
-                cur.recompute();
-                visual.update(root);
-                visual.redrawStep();
-                cur = cur.parent;
-            }
-        }
-
-        for (Node s : reinsertSubtrees) collectReinsert(s);
-    }
-
-    private void collectReinsert(Node n) {
-        if (n == null) return;
-        if (n.isLeaf) {
-            for (Entry e : n.entries) {
-                if (e.userPoint != null) {
-                    visual.flashReinsert(e.userPoint);
-                    reinsertPoint(e.userPoint);
-                }
-            }
+        // 언더플로우 발생 시 재구성, 그렇지 않으면 MBR만 업데이트
+        if (points.size() < MIN_CHILDREN) {
+            // 언더플로우 발생 시 트리 재구성
+            condenseTree(leafNode);
         } else {
-            for (Entry e : n.entries) {
-                collectReinsert(e.child);
-            }
+            // 언더플로우가 아니면 MBR만 업데이트
+            adjustTreeAfterInsertion(leafNode);
+        }
+
+        // 루트가 비게 되면 null로 설정
+        if (root != null &&
+                ((root.isLeaf() && root.getPoints().isEmpty()) // 루트가 리프 노드이고 포인트가 비어있거나
+                        || (!root.isLeaf() && root.getChildren().isEmpty()))) { // 루트가 내부 노드이고 자식이 비어있는 경우
+            root = null;
+        }
+
+        // 리스너 호출
+        if (listener != null) {
+            listener.onRTreeChanged(this);
         }
     }
 
-    private void reinsertPoint(Point p) {
-        Rectangle m = rectFrom(p);
-        java.util.List<Node> path = new ArrayList<>();
-        Node where = chooseLeaf(root, m, path);
-        visual.showPath(path);
+    /**
+     * 노드를 삭제하고 트리를 재구성하는 함수
+     * 삭제 후 언더플로우가 발생한 노드부터 루트까지 올라가며 처리
+     */
+    private void condenseTree(Node node) {
+        Node current = node;
+        // 재삽입할 포인트들과 노드들 저장
+        List<Point> reinsertPoints = new ArrayList<>();
+        List<Node> reinsertNodes = new ArrayList<>();
 
-        where.entries.add(new Entry(m, p));
-        where.recompute();
-        Node sp = null;
-        if (where.entries.size() > MAX_ENTRIES) {
-            sp = splitNode(where);
-            visual.flashSplit(where, sp);
-        }
-        adjustTree(where, sp);
-        visual.update(root);
-        visual.redrawStep();
-    }
+        // 루트에 도달할 때까지 반복
+        while (current != root) {
+            Node parent = current.getParent();
+            List<Node> siblings = parent.getChildren();
 
-    private void adjustTree(Node n, Node nn) {
-        Node cur = n, split = nn;
-        while (true) {
-            if (cur.parent == null) {
-                if (split != null) {
-                    Node newRoot = new Node(false);
-                    newRoot.entries.add(new Entry(copyRect(cur.mbr), cur));
-                    newRoot.entries.add(new Entry(copyRect(split.mbr), split));
-                    cur.parent = newRoot;
-                    split.parent = newRoot;
-                    newRoot.recompute();
-                    root = newRoot;
+            // 현재 노드가 언더플로우 상태인지 확인 (리프면 포인트 수, 내부면 자식 수)
+            boolean isUnderflow = current.isLeaf() ? current.getPoints().size() < MIN_CHILDREN
+                    : current.getChildren().size() < MIN_CHILDREN;
+
+            if (isUnderflow) {
+                // 언더플로우 발생: 부모에서 현재 노드 제거
+                siblings.remove(current);
+
+                // 현재 노드의 내용을 재삽입 목록에 추가
+                if (current.isLeaf()) {
+                    // 리프 노드면 포인트들을 재삽입 목록에 추가
+                    reinsertPoints.addAll(current.getPoints());
                 } else {
-                    cur.recompute();
-                    root = cur;
-                }
-                return;
-            }
-            Node p = cur.parent;
-            for (Entry e : p.entries) {
-                if (e.child == cur) {
-                    e.mbr = copyRect(cur.mbr);
-                    break;
-                }
-            }
-            p.recompute();
-
-            if (split != null) {
-                p.entries.add(new Entry(copyRect(split.mbr), split));
-                split.parent = p;
-                if (p.entries.size() > MAX_ENTRIES) {
-                    Node ps = splitNode(p);
-                    cur = p;
-                    split = ps;
-                } else {
-                    cur = p;
-                    split = null;
+                    // 내부 노드면 자식 노드들을 재삽입 목록에 추가
+                    reinsertNodes.addAll(current.getChildren());
                 }
             } else {
-                cur = p;
+                // 언더플로우가 아니면 MBR만 업데이트
+                if (current.isLeaf()) {
+                    current.setMbr(RectangleBuilder.fromPoints(current.getPoints()));
+                } else {
+                    current.setMbr(RectangleBuilder.fromNodes(current.getChildren()));
+                }
+            }
+            // 다음 레벨로 올라감
+            current = parent;
+        }
+
+        // 루트 노드 처리 및 레벨 조정
+        if (root != null) {
+            if (!root.isLeaf()) {
+                // 루트가 내부 노드인 경우
+                if (root.getChildren().size() == 0) {
+                    // 자식이 없으면 트리를 비움
+                    root = null;
+                } else if (root.getChildren().size() == 1) {
+                    // 자식이 하나만 있으면 그 자식을 새 루트로 승격
+                    root = root.getChildren().get(0);
+                    root.setParent(null);
+                    // 승격된 노드를 루트로 만들면서 전체 트리의 레벨 재조정
+                    adjustLevelsAfterPromotion(root);
+                } else {
+                    // 자식이 여러 개면 MBR만 업데이트
+                    root.setMbr(RectangleBuilder.fromNodes(root.getChildren()));
+                }
+            } else {
+                // 루트가 리프 노드인 경우
+                if (root.getPoints().isEmpty()) {
+                    // 포인트가 없으면 트리를 비움
+                    root = null;
+                } else {
+                    // 포인트가 있으면 MBR만 업데이트
+                    root.setMbr(RectangleBuilder.fromPoints(root.getPoints()));
+                }
+            }
+        }
+
+        // 재삽입 목록에 있는 모든 포인트들을 다시 트리에 추가
+        // add 메서드는 내부적으로 MBR 업데이트를 처리함
+        for (Point p : reinsertPoints) {
+            add(p);
+        }
+
+        // 재삽입 목록에 있는 모든 노드들을 다시 트리에 추가
+        for (Node n : reinsertNodes) {
+            // add를 재사용하기 위해 노드의 모든 포인트들을 가져와서 삽입
+            Iterator<Point> pointsIterator = getAllPoints(n);
+            while (pointsIterator.hasNext()) {
+                add(pointsIterator.next());
             }
         }
     }
 
-    private boolean contains(Point p) {
-        return findLeaf(root, p) != null;
+    /**
+     * 노드에 포함된 모든 포인트를 이터레이터로 반환
+     */
+    public Iterator<Point> getAllPoints(Node node) {
+        ArrayList<Point> result = new ArrayList<>();
+        getAllPointsRecursive(node, result);
+        return result.iterator();
+    }
+
+    private void getAllPointsRecursive(Node current, ArrayList<Point> result) {
+        if (current.isLeaf()) {
+            result.addAll(current.getPoints());
+            return;
+        }
+        for (Node child : current.getChildren()) {
+            getAllPointsRecursive(child, result);
+        }
+    }
+
+    /**
+     * 노드 승격 후 전체 트리의 레벨을 재조정
+     * 루트에서부터 시작해 모든 자식의 레벨을 부모보다 1 크게 설정
+     */
+    private void adjustLevelsAfterPromotion(Node node) {
+        if (node == null)
+            return;
+
+        // 루트는 항상 레벨 0이어야 함
+        if (node.getParent() == null) {
+            updateLevelsRecursive(node, 0);
+        }
+    }
+
+    /**
+     * 재귀적으로 모든 노드의 레벨을 업데이트
+     * 부모-자식 관계에서 자식은 항상 부모보다 1 큰 레벨을 가짐
+     */
+    private void updateLevelsRecursive(Node node, int level) {
+        // 현재 노드의 레벨 설정
+        node.setLevel(level);
+
+        // 내부 노드인 경우 모든 자식 노드의 레벨을 재귀적으로 업데이트
+        if (!node.isLeaf()) {
+            for (Node child : node.getChildren()) {
+                updateLevelsRecursive(child, level + 1);
+            }
+        }
     }
 }

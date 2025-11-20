@@ -1,4 +1,4 @@
-package org.dfpl.dbp.rtree.team2;
+package org.dfpl.dbp.rtree;
 
 import java.util.Iterator;
 
@@ -41,4 +41,16 @@ public interface RTree {
 	 * @return
 	 */
 	public boolean isEmpty();
+
+	/**
+	 * R-Tree의 루트 노드를 반환한다.
+	 * @return
+	 */
+	public Node getRoot();
+
+	/**
+	 * R-Tree 리스너를 설정한다.
+	 * @param listener
+	 */
+	public void setRTreeListener(RTreeListener listener);
 }
