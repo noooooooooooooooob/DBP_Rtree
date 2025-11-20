@@ -22,6 +22,15 @@ public class RTreeImpl extends JPanel implements RTree {
     private final int M = 4;
     private JFrame frame;
 
+    private Node activeNode = null;
+    private Color activeColor = null;
+    private Rectangle ghostMBR = null;
+
+    // [신규] Split 시 MBR 두 개를 임시로 저장하여 강조
+    private List<Rectangle> splitRects = new ArrayList<>();
+    // [신규] Split 발생 플래그
+    private boolean isSplitOccurred = false;
+
     private Rectangle searchRange;
     private Point searchSource;
     private List<Point> searchResultPoints;
@@ -38,11 +47,9 @@ public class RTreeImpl extends JPanel implements RTree {
 
     private static final Color COLOR_LEAF_MBR = new Color(255, 165, 0, 100);
     private static final Color COLOR_NODE_MBR = new Color(100, 100, 100, 50);
-    private static final Color COLOR_VISITED = new Color(0, 0, 255, 50);
-    private static final Color COLOR_PRUNED = new Color(200, 200, 200, 50);
-    private static final Color COLOR_HIGHLIGHT = new Color(0, 255, 0, 100);
     private static final Color COLOR_SEARCH_RANGE = new Color(255, 0, 0, 30);
-    private static final int DELAY_MS = 50;
+
+    private int delayMs = 50;
 
     private class Node {
         List<Object> children;
@@ -80,6 +87,9 @@ public class RTreeImpl extends JPanel implements RTree {
                 if (rx > maxX) maxX = rx;
                 if (ry > maxY) maxY = ry;
             }
+            // Point와 Rectangle 클래스는 외부에서 정의되었다고 가정합니다.
+            // 여기서는 임시로 Rectangle 생성자를 사용합니다.
+            // TODO: 실제 프로젝트의 Point/Rectangle 클래스를 여기에 맞게 조정하세요.
             this.mbr = new Rectangle(new Point(minX, minY), new Point(maxX, maxY));
         }
     }
@@ -121,37 +131,42 @@ public class RTreeImpl extends JPanel implements RTree {
         repaint();
     }
 
+    private Color getDepthColor(int depth) {
+        float hue = 0.30f - (depth * 0.07f);
+        if (hue < 0.02f) hue = 0.02f;
+        float sat = 0.4f + (depth * 0.12f);
+        if (sat > 1.0f) sat = 1.0f;
+        float bri = 0.9f - (depth * 0.08f);
+        if (bri < 0.4f) bri = 0.4f;
+        Color c = Color.getHSBColor(hue, sat, bri);
+        return new Color(c.getRed(), c.getGreen(), c.getBlue(), 80);
+    }
+
     private void refresh(boolean resetColors) {
-        if (resetColors) resetNodeColors(root);
+        if (resetColors) resetNodeColors(root, 0);
         repaint();
         try {
-            Thread.sleep(DELAY_MS);
+            Thread.sleep(delayMs);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
-    private void resetNodeColors(Node node) {
+    private void resetNodeColors(Node node, int depth) {
         if (node == null) return;
-        node.drawColor = node.isLeaf ? COLOR_LEAF_MBR : COLOR_NODE_MBR;
+        node.drawColor = getDepthColor(depth);
         if (!node.isLeaf) {
             for (Object child : node.children) {
-                if (child instanceof Node) resetNodeColors((Node) child);
+                if (child instanceof Node) {
+                    resetNodeColors((Node) child, depth + 1);
+                }
             }
         }
     }
 
-    private int toScreenX(double x) {
-        return (int) (x * SCALE) + OFFSET_X;
-    }
-
-    private int toScreenY(double y) {
-        return PANEL_HEIGHT - ((int) (y * SCALE) + OFFSET_Y);
-    }
-
-    private int toScreenLength(double len) {
-        return (int) (len * SCALE);
-    }
+    private int toScreenX(double x) { return (int) (x * SCALE) + OFFSET_X; }
+    private int toScreenY(double y) { return PANEL_HEIGHT - ((int) (y * SCALE) + OFFSET_Y); }
+    private int toScreenLength(double len) { return (int) (len * SCALE); }
 
     @Override
     protected void paintComponent(Graphics g) {
@@ -165,13 +180,25 @@ public class RTreeImpl extends JPanel implements RTree {
         g2.setColor(Color.BLACK);
         g2.setFont(new Font("SansSerif", Font.BOLD, 16));
         g2.drawString(currentActionInfo, 20, 30);
+
         if (isWaiting) {
             g2.setColor(Color.RED);
             g2.drawString("Press 'e' to continue...", 20, 55);
         }
 
+        // [추가] SPLIT OCCURRED 텍스트 표시
+        if (isSplitOccurred) {
+            g2.setColor(Color.MAGENTA);
+            g2.setFont(new Font("SansSerif", Font.BOLD, 20));
+            String splitText = "SPLIT OCCURRED!";
+            int textWidth = g2.getFontMetrics().stringWidth(splitText);
+            g2.drawString(splitText, getWidth() - textWidth - 20, 30);
+        }
+
+        // 1. 모든 노드의 MBR과 점을 먼저 그립니다. (내부 채우기 포함)
         if (root != null) drawNode(g2, root);
 
+        // 2. 검색 범위 및 소스 그리기
         if (searchRange != null) {
             int x = toScreenX(searchRange.getLeftTop().getX());
             int y = toScreenY(searchRange.getRightBottom().getY());
@@ -193,14 +220,47 @@ public class RTreeImpl extends JPanel implements RTree {
             g2.drawString("Source", x + 10, y);
         }
 
+        // 3. 검색 결과 점 그리기 (py 오류 수정됨)
         if (searchResultPoints != null) {
-            g2.setColor(Color.MAGENTA);
+            g2.setColor(Color.RED);
             for (Point p : searchResultPoints) {
                 int x = toScreenX(p.getX());
                 int y = toScreenY(p.getY());
                 g2.fillOval(x - 4, y - 4, 8, 8);
             }
         }
+
+        // 4. 강조할 테두리들을 가장 마지막에 덧칠합니다.
+
+        // 4-1. Split된 MBR 두 개 강조
+        if (!splitRects.isEmpty()) {
+            for (Rectangle r : splitRects) {
+                drawRect(g2, r, Color.RED, 3);
+            }
+        }
+
+        // 4-2. 삭제된 영역의 잔상 (Ghost MBR) 강조
+        if (ghostMBR != null) {
+            drawRect(g2, ghostMBR, Color.RED, 3);
+        }
+
+        // 4-3. 일반적인 활성 노드 테두리 (MBR 변경 시) 강조
+        if (activeNode != null && activeNode.mbr != null) {
+            drawRect(g2, activeNode.mbr, activeColor, 3);
+        }
+    }
+
+    private void drawRect(Graphics2D g2, Rectangle r, Color c, float strokeWidth) {
+        if (r == null) return;
+        int x = toScreenX(r.getLeftTop().getX());
+        int y = toScreenY(r.getRightBottom().getY());
+        int w = toScreenLength(r.getRightBottom().getX() - r.getLeftTop().getX());
+        int h = toScreenLength(r.getRightBottom().getY() - r.getLeftTop().getY());
+
+        g2.setColor(c);
+        g2.setStroke(new BasicStroke(strokeWidth));
+        g2.drawRect(x, y, w, h);
+        g2.setStroke(new BasicStroke(1));
     }
 
     private void drawNode(Graphics2D g2, Node node) {
@@ -239,13 +299,28 @@ public class RTreeImpl extends JPanel implements RTree {
         }
     }
 
+    private boolean isSameMBR(Rectangle r1, Rectangle r2) {
+        if (r1 == null && r2 == null) return true;
+        if (r1 == null || r2 == null) return false;
+
+        return r1.getLeftTop().getX() == r2.getLeftTop().getX() &&
+                r1.getLeftTop().getY() == r2.getLeftTop().getY() &&
+                r1.getRightBottom().getX() == r2.getRightBottom().getX() &&
+                r1.getRightBottom().getY() == r2.getRightBottom().getY();
+    }
+
     @Override
     public void add(Point point) {
+        delayMs = 50;
+
         currentActionInfo = "Inserting: (" + (int)point.getX() + ", " + (int)point.getY() + ")";
         searchRange = null;
         searchSource = null;
         searchResultPoints.clear();
-        resetNodeColors(root);
+        activeNode = null;
+        ghostMBR = null;
+        splitRects.clear();
+        isSplitOccurred = false;
 
         if (root == null) {
             root = new Node(true);
@@ -254,15 +329,19 @@ public class RTreeImpl extends JPanel implements RTree {
         } else {
             Node leaf = chooseLeaf(root, point);
 
-            Node curr = leaf;
-            while(curr != null) {
-                curr.drawColor = COLOR_HIGHLIGHT;
-                curr = curr.parent;
-            }
-            refresh(false);
+            Rectangle oldMBR = leaf.mbr;
 
             leaf.children.add(point);
             leaf.updateMBR();
+
+            if (!isSameMBR(oldMBR, leaf.mbr)) {
+                activeNode = leaf;
+                activeColor = Color.RED;
+                delayMs = 500;
+                refresh(false);
+                activeNode = null;
+                delayMs = 50;
+            }
 
             Node p = leaf.parent;
             while(p != null) {
@@ -276,6 +355,7 @@ public class RTreeImpl extends JPanel implements RTree {
                 adjustTree(leaf);
             }
         }
+        activeNode = null;
         refresh(true);
         waitForKey();
     }
@@ -301,6 +381,7 @@ public class RTreeImpl extends JPanel implements RTree {
     private void split(Node node) {
         Node newNode = new Node(node.isLeaf);
         newNode.parent = node.parent;
+
         List<Object> entries = new ArrayList<>(node.children);
         node.children.clear();
 
@@ -314,8 +395,26 @@ public class RTreeImpl extends JPanel implements RTree {
         node.children.addAll(entries.subList(0, mid));
         newNode.children.addAll(entries.subList(mid, entries.size()));
 
+        if (!node.isLeaf) {
+            for (Object child : newNode.children) {
+                ((Node)child).parent = newNode;
+            }
+        }
+
         node.updateMBR();
         newNode.updateMBR();
+
+        // [추가] Split 시각화
+        isSplitOccurred = true;
+        splitRects.add(node.mbr);
+        splitRects.add(newNode.mbr);
+        delayMs = 500;
+        refresh(false);
+
+        isSplitOccurred = false;
+        splitRects.clear();
+        delayMs = 50;
+        // [추가] Split 시각화 끝
 
         if (node == root) {
             Node newRoot = new Node(false);
@@ -339,7 +438,22 @@ public class RTreeImpl extends JPanel implements RTree {
 
     private void adjustTree(Node node) {
         while (node != null) {
+            Rectangle oldMBR = node.mbr;
+
             node.updateMBR();
+
+            if (!isSameMBR(oldMBR, node.mbr)) {
+                activeNode = node;
+                activeColor = Color.RED;
+
+                delayMs = 500;
+                refresh(false);
+
+                // MBR 강조 후, 다음 부모로 넘어가기 전에 activeNode를 해제하여 강조가 덧칠로만 보이게 합니다.
+                activeNode = null;
+                delayMs = 50;
+            }
+
             node = node.parent;
         }
     }
@@ -358,20 +472,26 @@ public class RTreeImpl extends JPanel implements RTree {
 
     @Override
     public Iterator<Point> search(Rectangle rectangle) {
+        delayMs = 500;
         currentActionInfo = "Ready to Search: Range " + rectangle;
         searchRange = rectangle;
         searchSource = null;
         searchResultPoints.clear();
-        resetNodeColors(root);
-        refresh(false);
+        resetNodeColors(root, 0);
 
+        activeNode = null;
+        ghostMBR = null;
+        splitRects.clear();
+        isSplitOccurred = false;
+
+        refresh(false);
         waitForKey();
 
-        currentActionInfo = "Searching...";
+        currentActionInfo = "Searching... (Blue: Enter, Red: Found)";
         List<Point> results = new ArrayList<>();
         if (root != null) searchRec(root, rectangle, results);
 
-        searchResultPoints.addAll(results);
+        activeNode = null;
         refresh(true);
         return results.iterator();
     }
@@ -380,26 +500,115 @@ public class RTreeImpl extends JPanel implements RTree {
         if (node == null) return;
 
         if (!intersects(node.mbr, range)) {
-            node.drawColor = COLOR_PRUNED;
-            refresh(false);
             return;
         }
 
-        node.drawColor = COLOR_VISITED;
+        activeNode = node;
+        activeColor = Color.BLUE;
         refresh(false);
 
         if (node.isLeaf) {
+            boolean foundInThisNode = false;
             for (Object obj : node.children) {
                 Point p = (Point) obj;
                 if (contains(range, p)) {
                     results.add(p);
+                    searchResultPoints.add(p);
+                    foundInThisNode = true;
                 }
+            }
+            if (foundInThisNode) {
+                activeNode = node;
+                activeColor = Color.RED;
+                refresh(false);
             }
         } else {
             for (Object obj : node.children) {
-                searchRec((Node) obj, range, results);
+                if (obj instanceof Node) {
+                    searchRec((Node) obj, range, results);
+                    activeNode = node;
+                    activeColor = Color.BLUE;
+                    refresh(false);
+                }
             }
         }
+    }
+
+    @Override
+    public Iterator<Point> nearest(Point source, int maxCount) {
+        delayMs = 500;
+        currentActionInfo = "Ready to KNN: Source (" + (int)source.getX() + ", " + (int)source.getY() + ")";
+        searchRange = null;
+        searchSource = source;
+        searchResultPoints.clear();
+        resetNodeColors(root, 0);
+
+        activeNode = null;
+        ghostMBR = null;
+        splitRects.clear();
+        isSplitOccurred = false;
+
+        refresh(false);
+        waitForKey();
+
+        currentActionInfo = "KNN Searching... (Blue Border: Expanding)";
+        if (root == null) return Collections.emptyIterator();
+
+        PriorityQueue<Object> pq = new PriorityQueue<>((o1, o2) -> {
+            double d1 = (o1 instanceof Point) ? source.distance((Point) o1) : minDist(source, ((Node) o1).mbr);
+            double d2 = (o2 instanceof Point) ? source.distance((Point) o2) : minDist(source, ((Node) o2).mbr);
+            return Double.compare(d1, d2);
+        });
+
+        pq.add(root);
+        List<Point> results = new ArrayList<>();
+
+        while (!pq.isEmpty() && results.size() < maxCount) {
+            Object curr = pq.poll();
+
+            if (curr instanceof Point) {
+                Point p = (Point) curr;
+                results.add(p);
+                searchResultPoints.add(p);
+                activeNode = null;
+                refresh(false);
+            } else {
+                Node node = (Node) curr;
+                activeNode = node;
+                activeColor = Color.BLUE;
+                pq.addAll(node.children);
+                refresh(false);
+            }
+        }
+        activeNode = null;
+        refresh(true);
+        return results.iterator();
+    }
+
+    @Override
+    public void delete(Point point) {
+        delayMs = 50;
+        currentActionInfo = "Deleting: (" + (int)point.getX() + ", " + (int)point.getY() + ")";
+        searchRange = null;
+        searchSource = null;
+        searchResultPoints.clear();
+        activeNode = null;
+        ghostMBR = null;
+        splitRects.clear();
+        isSplitOccurred = false;
+
+        if (root != null) {
+            if (deleteRec(root, point)) {
+                if (root.children.isEmpty()) root = null;
+                else if (!root.isLeaf && root.children.size() == 1) {
+                    root = (Node) root.children.get(0);
+                    root.parent = null;
+                }
+            }
+        }
+        activeNode = null;
+        refresh(true);
+        waitForKey();
     }
 
     private boolean intersects(Rectangle r1, Rectangle r2) {
@@ -414,74 +623,10 @@ public class RTreeImpl extends JPanel implements RTree {
                 p.getY() >= r.getLeftTop().getY() && p.getY() <= r.getRightBottom().getY();
     }
 
-    @Override
-    public Iterator<Point> nearest(Point source, int maxCount) {
-        currentActionInfo = "Ready to KNN: Source (" + (int)source.getX() + ", " + (int)source.getY() + ")";
-        searchRange = null;
-        searchSource = source;
-        searchResultPoints.clear();
-        resetNodeColors(root);
-        refresh(false);
-
-        waitForKey();
-
-        currentActionInfo = "KNN Searching...";
-        if (root == null) return Collections.emptyIterator();
-
-        PriorityQueue<Object> pq = new PriorityQueue<>((o1, o2) -> {
-            double d1 = (o1 instanceof Point) ? source.distance((Point) o1) : minDist(source, ((Node) o1).mbr);
-            double d2 = (o2 instanceof Point) ? source.distance((Point) o2) : minDist(source, ((Node) o2).mbr);
-            return Double.compare(d1, d2);
-        });
-
-        pq.add(root);
-        List<Point> results = new ArrayList<>();
-
-        while (!pq.isEmpty() && results.size() < maxCount) {
-            Object curr = pq.poll();
-            resetNodeColors(root);
-
-            if (curr instanceof Point) {
-                Point p = (Point) curr;
-                results.add(p);
-                searchResultPoints.add(p);
-                refresh(false);
-            } else {
-                Node node = (Node) curr;
-                node.drawColor = COLOR_VISITED;
-                pq.addAll(node.children);
-                refresh(false);
-            }
-        }
-        refresh(true);
-        return results.iterator();
-    }
-
     private double minDist(Point p, Rectangle r) {
         double dx = Math.max(Math.max(r.getLeftTop().getX() - p.getX(), 0), p.getX() - r.getRightBottom().getX());
         double dy = Math.max(Math.max(r.getLeftTop().getY() - p.getY(), 0), p.getY() - r.getRightBottom().getY());
         return Math.sqrt(dx * dx + dy * dy);
-    }
-
-    @Override
-    public void delete(Point point) {
-        currentActionInfo = "Deleting: (" + (int)point.getX() + ", " + (int)point.getY() + ")";
-        searchRange = null;
-        searchSource = null;
-        searchResultPoints.clear();
-        resetNodeColors(root);
-
-        if (root != null) {
-            if (deleteRec(root, point)) {
-                if (root.children.isEmpty()) root = null;
-                else if (!root.isLeaf && root.children.size() == 1) {
-                    root = (Node) root.children.get(0);
-                    root.parent = null;
-                }
-            }
-        }
-        refresh(true);
-        waitForKey();
     }
 
     private boolean deleteRec(Node node, Point p) {
@@ -489,11 +634,29 @@ public class RTreeImpl extends JPanel implements RTree {
             for (int i = 0; i < node.children.size(); i++) {
                 Point lp = (Point) node.children.get(i);
                 if (lp.getX() == p.getX() && lp.getY() == p.getY()) {
-                    node.drawColor = COLOR_HIGHLIGHT;
-                    refresh(false);
+
+                    ghostMBR = node.mbr;
+                    Rectangle oldMBR = node.mbr;
 
                     node.children.remove(i);
                     node.updateMBR();
+
+                    // 1. 삭제된 잔상(Ghost)은 무조건 500ms 보여줌
+                    delayMs = 500;
+                    refresh(false);
+                    delayMs = 50;
+                    ghostMBR = null;
+
+                    // 2. MBR이 줄어들었으면 해당 노드 강조
+                    if (!isSameMBR(oldMBR, node.mbr)) {
+                        activeNode = node;
+                        activeColor = Color.RED;
+                        delayMs = 500;
+                        refresh(false);
+                        activeNode = null;
+                        delayMs = 50;
+                    }
+
                     return true;
                 }
             }
@@ -503,12 +666,31 @@ public class RTreeImpl extends JPanel implements RTree {
                 Node child = (Node) obj;
                 if (contains(child.mbr, p)) {
                     if (deleteRec(child, p)) {
+                        Rectangle oldMBR = node.mbr;
+
                         if (child.children.isEmpty()) {
+                            ghostMBR = child.mbr;
                             node.children.remove(child);
+
+                            // 자식 삭제 잔상 보여주기
+                            delayMs = 500;
+                            refresh(false);
+                            delayMs = 50;
+                            ghostMBR = null;
                         }
-                        node.drawColor = COLOR_HIGHLIGHT;
+
                         node.updateMBR();
-                        refresh(false);
+
+                        // 부모 노드 MBR 변경 시 강조
+                        if (!isSameMBR(oldMBR, node.mbr)) {
+                            activeNode = node;
+                            activeColor = Color.RED;
+                            delayMs = 500;
+                            refresh(false);
+                            activeNode = null;
+                            delayMs = 50;
+                        }
+
                         return true;
                     }
                 }
