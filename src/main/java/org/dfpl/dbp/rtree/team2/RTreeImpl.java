@@ -1,4 +1,4 @@
-package org.dfpl.dbp.rtree;
+package org.dfpl.dbp.rtree.team2;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -84,11 +84,11 @@ public class RTreeImpl implements RTree {
         while (current != null) {
             if (current.isLeaf()) {
                 // 리프 노드는 points로부터 MBR 재계산
-                Rectangle updatedMbr = RectangleBuilder.fromPoints(current.getPoints());
+                Rectangle updatedMbr = Rectangle.makeNewRectFromPoints(current.getPoints());
                 current.setMbr(updatedMbr);
             } else {
                 // 내부 노드는 children으로부터 MBR 재계산
-                Rectangle updatedMbr = RectangleBuilder.fromNodes(current.getChildren());
+                Rectangle updatedMbr = Rectangle.makeNewRectFromNodes(current.getChildren());
                 current.setMbr(updatedMbr);
             }
             current = current.getParent();
@@ -101,7 +101,7 @@ public class RTreeImpl implements RTree {
      */
     private void splitNode(Node splitNode) {
         if (splitNode.isLeaf()) {
-            // === 리프 노드 분할 (최소 면적 분할 적용) ===
+            // 리프 노드 분할 (최소 면적 분할 적용)
             List<Point> points = splitNode.getPoints();
             
             // 최적의 분할을 찾기 위한 변수들
@@ -109,14 +109,17 @@ public class RTreeImpl implements RTree {
             int bestAxis = 0; // 0: X축, 1: Y축
             int bestIndex = 0;
 
-            // X축 정렬, Y축 정렬 각각에 대해 (2개, 3개), (3개, 2개) 이렇게 분할을 해보면서 가장 작은 면적 합을 찾음
+            // X축 또는 Y축으로 정렬한다.
+            // 각각에 대해 가능한 분할 경우의 수 (2개, 3개), (3개, 2개)로 분할을 해보면서 가장 작은 면적 합을 찾음
+            // 실제로는 for문을 돌면서 자식 최대치가 늘어나도 동작할 수 있도록 구현한다.
+            // 최종적으로 가장 작은 면적 합을 가진 축과 인덱스로 분할 수행
             
             // X축 기준 검사
             // (2개, 3개), (3개, 2개) 이렇게 분할을 해보면서 가장 작은 면적 합을 찾음
             points.sort((p1, p2) -> Double.compare(p1.getX(), p2.getX()));
             for (int i = MIN_CHILDREN; i <= points.size() - MIN_CHILDREN; i++) {
-                Rectangle mbr1 = RectangleBuilder.fromPoints(points.subList(0, i));
-                Rectangle mbr2 = RectangleBuilder.fromPoints(points.subList(i, points.size()));
+                Rectangle mbr1 = Rectangle.makeNewRectFromPoints(points.subList(0, i));
+                Rectangle mbr2 = Rectangle.makeNewRectFromPoints(points.subList(i, points.size()));
                 double areaSum = mbr1.getArea() + mbr2.getArea();
                 
                 if (areaSum < minAreaSum) {
@@ -130,8 +133,8 @@ public class RTreeImpl implements RTree {
             // (2개, 3개), (3개, 2개) 이렇게 분할을 해보면서 가장 작은 면적 합을 찾음
             points.sort((p1, p2) -> Double.compare(p1.getY(), p2.getY()));
             for (int i = MIN_CHILDREN; i <= points.size() - MIN_CHILDREN; i++) {
-                Rectangle mbr1 = RectangleBuilder.fromPoints(points.subList(0, i));
-                Rectangle mbr2 = RectangleBuilder.fromPoints(points.subList(i, points.size()));
+                Rectangle mbr1 = Rectangle.makeNewRectFromPoints(points.subList(0, i));
+                Rectangle mbr2 = Rectangle.makeNewRectFromPoints(points.subList(i, points.size()));
                 double areaSum = mbr1.getArea() + mbr2.getArea();
                 
                 if (areaSum < minAreaSum) {
@@ -141,32 +144,30 @@ public class RTreeImpl implements RTree {
                 }
             }
             
-            // 가장 작은 면적을 가진 최적의 축으로 다시 정렬하여 분할
+            // 가장 작은 면적을 가진 조합으로 분할한다.
             if (bestAxis == 0) {
                 points.sort((p1, p2) -> Double.compare(p1.getX(), p2.getX()));
-            } else {
-                points.sort((p1, p2) -> Double.compare(p1.getY(), p2.getY()));
             }
+            // bestAxis == 1인 경우는 이미 Y축으로 정렬된 상태
             
             List<Point> leftPoints = new ArrayList<>(points.subList(0, bestIndex));
             List<Point> rightPoints = new ArrayList<>(points.subList(bestIndex, points.size()));
 
             // 각 그룹에 대해 새 리프 노드 생성
-            // fromPoints: 포인트들을 모두 포함하는 MBR 계산
             // 분할된 리프 노드들은 원래 노드와 동일한 레벨 유지
             int childLevel = splitNode.getLevel();
-            Node leftNode = Node.createLeaf(RectangleBuilder.fromPoints(leftPoints), splitNode.getParent(), leftPoints,
+            Node leftNode = Node.createLeaf(Rectangle.makeNewRectFromPoints(leftPoints), splitNode.getParent(), leftPoints,
                     childLevel);
-            Node rightNode = Node.createLeaf(RectangleBuilder.fromPoints(rightPoints), splitNode.getParent(),
+            Node rightNode = Node.createLeaf(Rectangle.makeNewRectFromPoints(rightPoints), splitNode.getParent(),
                     rightPoints, childLevel);
             
             // 부모 연결 및 트리 구조 업데이트
             if (splitNode.getParent() == null) {
-                // === 루트 노드가 분할되는 경우 ===
+                // 루트 노드가 분할되는 경우
                 ArrayList<Node> rootChildren = new ArrayList<>();
                 rootChildren.add(leftNode);
                 rootChildren.add(rightNode);
-                Rectangle newRootMbr = RectangleBuilder.fromNodes(rootChildren);
+                Rectangle newRootMbr = Rectangle.makeNewRectFromNodes(rootChildren);
 
                 // 새로운 루트 노드 생성 (내부 노드)
                 // 두 분할된 노드가 자식이 됨
@@ -182,7 +183,7 @@ public class RTreeImpl implements RTree {
                 // 트리가 조정되었으니 레벨 업데이트
                 adjustLevelsAfterPromotion(root);
             } else {
-                // === 일반 리프 노드가 분할되는 경우 ===
+                // 일반 리프 노드가 분할되는 경우
                 Node parent = splitNode.getParent();
                 List<Node> siblings = parent.getChildren();
 
@@ -198,7 +199,7 @@ public class RTreeImpl implements RTree {
                 rightNode.setParent(parent);
                 
                 // 부모의 MBR을 모든 자식들을 포함하도록 재계산
-                Rectangle newParentMbr = RectangleBuilder.fromNodes(siblings);
+                Rectangle newParentMbr = Rectangle.makeNewRectFromNodes(siblings);
                 parent.setMbr(newParentMbr);
 
                 // 부모 노드도 초과되었는지 확인
@@ -211,7 +212,7 @@ public class RTreeImpl implements RTree {
                 }
             }
         } else {
-            // === 내부 노드 분할 (최소 면적 분할 적용) ===
+            // 내부 노드 분할 (최소 면적 분할 적용)
             List<Node> children = splitNode.getChildren();
             
             double minAreaSum = Double.MAX_VALUE;
@@ -221,8 +222,8 @@ public class RTreeImpl implements RTree {
             // X축 기준 (MBR의 중심점 또는 왼쪽 좌표 기준)
             children.sort((n1, n2) -> Double.compare(n1.getMbr().getLeftTop().getX(), n2.getMbr().getLeftTop().getX()));
             for (int i = MIN_CHILDREN; i <= children.size() - MIN_CHILDREN; i++) {
-                Rectangle mbr1 = RectangleBuilder.fromNodes(children.subList(0, i));
-                Rectangle mbr2 = RectangleBuilder.fromNodes(children.subList(i, children.size()));
+                Rectangle mbr1 = Rectangle.makeNewRectFromNodes(children.subList(0, i));
+                Rectangle mbr2 = Rectangle.makeNewRectFromNodes(children.subList(i, children.size()));
                 double areaSum = mbr1.getArea() + mbr2.getArea();
                 
                 if (areaSum < minAreaSum) {
@@ -235,8 +236,8 @@ public class RTreeImpl implements RTree {
             // Y축 기준
             children.sort((n1, n2) -> Double.compare(n1.getMbr().getLeftTop().getY(), n2.getMbr().getLeftTop().getY()));
             for (int i = MIN_CHILDREN; i <= children.size() - MIN_CHILDREN; i++) {
-                Rectangle mbr1 = RectangleBuilder.fromNodes(children.subList(0, i));
-                Rectangle mbr2 = RectangleBuilder.fromNodes(children.subList(i, children.size()));
+                Rectangle mbr1 = Rectangle.makeNewRectFromNodes(children.subList(0, i));
+                Rectangle mbr2 = Rectangle.makeNewRectFromNodes(children.subList(i, children.size()));
                 double areaSum = mbr1.getArea() + mbr2.getArea();
                 
                 if (areaSum < minAreaSum) {
@@ -249,16 +250,15 @@ public class RTreeImpl implements RTree {
             // 최적 분할 적용
             if (bestAxis == 0) {
                 children.sort((n1, n2) -> Double.compare(n1.getMbr().getLeftTop().getX(), n2.getMbr().getLeftTop().getX()));
-            } else {
-                children.sort((n1, n2) -> Double.compare(n1.getMbr().getLeftTop().getY(), n2.getMbr().getLeftTop().getY()));
-            }
+            } 
+            // bestAxis == 1인 경우는 이미 Y축으로 정렬된 상태
             
             List<Node> leftChildren = new ArrayList<>(children.subList(0, bestIndex));
             List<Node> rightChildren = new ArrayList<>(children.subList(bestIndex, children.size()));
 
             // 각 그룹의 MBR 계산
-            Rectangle leftMbr = RectangleBuilder.fromNodes(leftChildren);
-            Rectangle rightMbr = RectangleBuilder.fromNodes(rightChildren);
+            Rectangle leftMbr = Rectangle.makeNewRectFromNodes(leftChildren);
+            Rectangle rightMbr = Rectangle.makeNewRectFromNodes(rightChildren);
 
             // 각 그룹에 대해 새 내부 노드 생성
             // 분할된 내부 노드들은 원래 노드와 동일한 레벨 유지
@@ -275,12 +275,12 @@ public class RTreeImpl implements RTree {
             }
 
             if (splitNode.getParent() == null) {
-                // === 루트 노드가 분할되는 경우 ===
+                // 루트 노드가 분할되는 경우
                 ArrayList<Node> rootChildren = new ArrayList<>();
                 rootChildren.add(leftNode);
                 rootChildren.add(rightNode);
 
-                Rectangle newRootMbr = RectangleBuilder.fromNodes(rootChildren);
+                Rectangle newRootMbr = Rectangle.makeNewRectFromNodes(rootChildren);
 
                 // 새로운 루트 노드 생성
                 Node newRoot = Node.createInternal(newRootMbr, null, rootChildren, 0);
@@ -289,7 +289,7 @@ public class RTreeImpl implements RTree {
                 root = newRoot;
                 adjustLevelsAfterPromotion(root);
             } else {
-                // === 일반 노드 분할 처리 ===
+                // 일반 노드가 분할되는 경우
                 Node parent = splitNode.getParent();
                 List<Node> siblings = parent.getChildren();
                 siblings.remove(splitNode);
@@ -298,9 +298,10 @@ public class RTreeImpl implements RTree {
                 leftNode.setParent(parent);
                 rightNode.setParent(parent);
                 
-                Rectangle newParentMbr = RectangleBuilder.fromNodes(siblings);
+                Rectangle newParentMbr = Rectangle.makeNewRectFromNodes(siblings);
                 parent.setMbr(newParentMbr);
 
+                // 부모 노드도 초과되었는지 확인
                 if (siblings.size() > MAX_CHILDREN) {
                     splitNode(parent);
                 } else {
@@ -324,7 +325,7 @@ public class RTreeImpl implements RTree {
                 return current;
             }
 
-            // === 내부 노드인 경우 ===
+            // 내부 노드인 경우
             // 자식 노드들 중에서 MBR 확장 면적이 가장 작은 노드를 선택
             List<Node> children = current.getChildren();
             Node minChild = null;
@@ -352,7 +353,7 @@ public class RTreeImpl implements RTree {
 
         // 정상적인 경우 이 코드에 도달하지 않음
         // 도달했다면 트리 구조에 문제가 있음
-        System.err.println("Error: chooseLeaf가 null을 반환함");
+        System.out.println("Error: 트리 구조에 문제가 있음!");
         return null;
     }
 
@@ -475,7 +476,7 @@ public class RTreeImpl implements RTree {
         // 방문한 노드들 기록
         ArrayList<Node> visitedNodes = new ArrayList<>();
 
-        // 우선순위 큐: 거리 오름차순
+        // 거리를 오름차순으로 정렬하는 우선순위 큐
         // 큐에는 노드 또는 포인트가 들어감
         PriorityQueue<PQEntry> pq = new PriorityQueue<>((a, b) -> Double.compare(a.dist, b.dist));
 
@@ -485,7 +486,7 @@ public class RTreeImpl implements RTree {
 
         // 루트 삽입
         if (root.isLeaf()) {
-            // 루트가 리프 노드인 경우, 모든 포인트 삽입
+            // 루트가 리프 노드인 경우, 모든 포인트를 거리와 함께 삽입
             for (Point p : root.getPoints()) {
                 pq.add(new PQEntry(null, p, p.distance(source)));
             }
@@ -617,9 +618,9 @@ public class RTreeImpl implements RTree {
             } else {
                 // 언더플로우가 아니면 MBR만 업데이트
                 if (current.isLeaf()) {
-                    current.setMbr(RectangleBuilder.fromPoints(current.getPoints()));
+                    current.setMbr(Rectangle.makeNewRectFromPoints(current.getPoints()));
                 } else {
-                    current.setMbr(RectangleBuilder.fromNodes(current.getChildren()));
+                    current.setMbr(Rectangle.makeNewRectFromNodes(current.getChildren()));
                 }
             }
             // 다음 레벨로 올라감
@@ -641,7 +642,7 @@ public class RTreeImpl implements RTree {
                     adjustLevelsAfterPromotion(root);
                 } else {
                     // 자식이 여러 개면 MBR만 업데이트
-                    root.setMbr(RectangleBuilder.fromNodes(root.getChildren()));
+                    root.setMbr(Rectangle.makeNewRectFromNodes(root.getChildren()));
                 }
             } else {
                 // 루트가 리프 노드인 경우
@@ -650,7 +651,7 @@ public class RTreeImpl implements RTree {
                     root = null;
                 } else {
                     // 포인트가 있으면 MBR만 업데이트
-                    root.setMbr(RectangleBuilder.fromPoints(root.getPoints()));
+                    root.setMbr(Rectangle.makeNewRectFromPoints(root.getPoints()));
                 }
             }
         }

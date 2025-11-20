@@ -1,4 +1,4 @@
-package org.dfpl.dbp.rtree;
+package org.dfpl.dbp.rtree.team2;
 
 import java.util.List;
 
@@ -31,6 +31,7 @@ public class Node {
         this.level = level;
     }
     
+    // 노드 생성용 함수
     public static Node createLeaf(Rectangle mbr, Node parent, List<Point> points, int level) {
         return new Node(mbr, parent, null, points, level);
     }

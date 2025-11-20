@@ -1,4 +1,4 @@
-package org.dfpl.dbp.rtree;
+package org.dfpl.dbp.rtree.team2;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -16,13 +16,13 @@ import javax.swing.JPanel;
  */
 public class RTreePanel extends JPanel {
     
-    /** 화면 가장자리 여백 (픽셀) */
+    // 화면 가장자리 여백 (픽셀)
     private static final int PADDING = 50;
     
-    /** 좌표계 스케일 (트리 좌표를 화면 좌표로 변환할 때 사용) */
+    // 좌표계 스케일 (트리 좌표를 화면 좌표로 변환할 때 사용)
     private static final double SCALE = 3.5;
     
-    /** 시각화 상태를 가져올 MainFrame 참조 */
+    // 시각화 상태를 가져올 MainFrame 참조
     private MainFrame mainFrame;
     
     /**
@@ -34,22 +34,7 @@ public class RTreePanel extends JPanel {
         this.mainFrame = mainFrame;
         setBackground(Color.WHITE);
     }
-    
-    /**
-     * 패널을 그리는 메인 메서드
-     * Swing에 의해 자동으로 호출되며, repaint() 호출 시에도 실행됨
-     * 
-     * 그리기 순서:
-     * 0. 배경 그리드 및 좌표축
-     * 1. 계층적 Bounding Box (레벨별 다른 색상)
-     * 2. 가지치기된 노드 (빨간색 채우기)
-     * 3. 현재 검색 중인 노드 (오렌지색 강조)
-     * 4. 검색 영역 (녹색 테두리)
-     * 5. 모든 포인트 (검은색 작은 점)
-     * 6. 검색된 포인트 (파란색 큰 점)
-     * 7. KNN 검색 시각화 (기준점, 결과, 연결선 등)
-     * 8. 범례 (Legend)
-     */
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
@@ -58,7 +43,7 @@ public class RTreePanel extends JPanel {
         // 안티앨리어싱 활성화 (부드러운 선 그리기)
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         
-        // === 0. 배경 그리드 및 좌표축 그리기 ===
+        // 배경 그리드 및 좌표축 그리기
         drawGridAndAxes(g2);
         
         // 현재 트리 가져오기
@@ -71,11 +56,9 @@ public class RTreePanel extends JPanel {
         // 루트 노드부터 시작
         Node root = ((RTreeImpl) currentTree).getRoot();
         
-        // === 1. 계층적 Bounding Box 그리기 ===
-        // 모든 노드의 MBR을 레벨별로 다른 색상으로 표시
+        // 모든 노드의 MBR을 레벨에 따라 다른색상으로 그리기
         drawNodeHierarchy(g2, root);
         
-        // === 2. 가지치기된 노드 강조 ===
         // 검색 영역과 겹치지 않아 탐색에서 제외된 노드들을 빨간색으로 채움
         if (!mainFrame.getPrunedNodes().isEmpty()) {
             g2.setColor(new Color(255, 0, 0, 100)); // 반투명 빨간색
@@ -84,8 +67,7 @@ public class RTreePanel extends JPanel {
             }
         }
         
-        // === 3. 현재 검색 중인 노드 강조 ===
-        // 일반 검색에서 현재 처리 중인 노드를 오렌지색으로 표시
+        // 일반 검색에서 현재 처리 중인 노드를 주황색으로 표시
         if (mainFrame.getCurrentSearchNode() != null) {
             g2.setColor(new Color(255, 165, 0, 150)); // 반투명 오렌지
             fillRectangle(g2, mainFrame.getCurrentSearchNode().getMbr());
@@ -93,18 +75,15 @@ public class RTreePanel extends JPanel {
             drawRectangle(g2, mainFrame.getCurrentSearchNode().getMbr(), 3);
         }
         
-        // === 4. 검색 영역 표시 ===
         // 사용자가 지정한 검색 사각형을 녹색 테두리로 표시
         if (mainFrame.getSearchArea() != null) {
             g2.setColor(new Color(0, 255, 0, 80)); // 반투명 녹색
             drawRectangle(g2, mainFrame.getSearchArea(), 3);
         }
         
-        // === 5. 모든 포인트 그리기 ===
         // 트리에 저장된 모든 포인트를 검은색 작은 점으로 표시
         drawAllPoints(g2, root);
         
-        // === 6. 검색된 포인트 강조 ===
         // 검색 결과로 찾은 포인트들을 파란색 큰 점으로 표시
         if (!mainFrame.getFoundPoints().isEmpty()) {
             g2.setColor(Color.BLUE);
@@ -113,19 +92,19 @@ public class RTreePanel extends JPanel {
             }
         }
         
-        // === 7. KNN 검색 시각화 ===
+        // KNN 검색 시각화
         if (mainFrame.getKnnSource() != null) {
-            // 7-1. 기준 포인트를 빨간색으로 표시
+            // 기준 포인트를 빨간색으로 표시
             g2.setColor(Color.RED);
             drawPoint(g2, mainFrame.getKnnSource(), 10, true);
             
-            // 7-2. 방문한 노드들을 노란색으로 채움
+            // 방문한 노드들을 노란색으로 채움
             g2.setColor(new Color(255, 255, 0, 100)); // 반투명 노란색
             for (Node node : mainFrame.getVisitedNodes()) {
                 fillRectangle(g2, node.getMbr());
             }
             
-            // 7-3. 현재 우선순위 큐에서 처리 중인 노드를 오렌지색으로 강조
+            // 현재 우선순위 큐에서 처리 중인 노드를 주황색으로 강조
             if (mainFrame.getCurrentEntry() != null) {
                 if (mainFrame.getCurrentEntry().node != null) {
                     g2.setColor(new Color(255, 165, 0, 150)); // 반투명 오렌지
@@ -133,7 +112,7 @@ public class RTreePanel extends JPanel {
                 }
             }
             
-            // 7-4. KNN 검색 결과 포인트들을 마젠타색으로 표시하고 기준점과 선으로 연결
+            // KNN 검색 결과 포인트들을 마젠타색으로 표시하고 기준점과 선으로 연결
             g2.setColor(Color.MAGENTA);
             for (int i = 0; i < mainFrame.getKnnResults().size(); i++) {
                 Point p = mainFrame.getKnnResults().get(i);
@@ -149,7 +128,7 @@ public class RTreePanel extends JPanel {
             }
         }
         
-        // === 8. 범례 (Legend) 그리기 ===
+        // 범례 그리기
         drawLegend(g2);
     }
     
@@ -220,6 +199,7 @@ public class RTreePanel extends JPanel {
     }
     
     private void drawLegendItem(Graphics2D g2, int x, int y, Color c, String text, boolean isRect) {
+        // 도형과 이름 그리기
         g2.setColor(c);
         if (isRect) {
             g2.fillRect(x, y - 8, 12, 12);
@@ -248,12 +228,12 @@ public class RTreePanel extends JPanel {
     private void drawNodeHierarchy(Graphics2D g2, Node node) {
         if (node == null) return;
         
-        // 레벨별 색상 정의 (반투명)
+        // 레벨별 색상 정의
         Color[] levelColors = {
             new Color(0, 0, 255, 100),      // Level 0: 파란색
             new Color(0, 128, 255, 80),     // Level 1: 하늘색
             new Color(128, 0, 255, 60),     // Level 2: 보라색
-            new Color(255, 0, 128, 40)      // Level 3+: 분홍색
+            new Color(255, 0, 128, 40)      // Level 3 이상: 분홍색
         };
         
         // 현재 노드의 레벨에 따른 색상 선택
@@ -326,7 +306,7 @@ public class RTreePanel extends JPanel {
     }
     
     /**
-     * 사각형을 채워서 그리는 메서드 (반투명 효과에 사용)
+     * 사각형을 채워서 그리는 메서드
      * 
      * @param g2 그래픽 컨텍스트
      * @param rect 채울 사각형
@@ -348,7 +328,7 @@ public class RTreePanel extends JPanel {
      * 
      * @param g2 그래픽 컨텍스트
      * @param p 그릴 포인트
-     * @param size 원의 지름 (픽셀)
+     * @param size 원의 지름
      * @param fill true면 채워진 원, false면 테두리만
      */
     private void drawPoint(Graphics2D g2, Point p, int size, boolean fill) {

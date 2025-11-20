@@ -1,4 +1,4 @@
-package org.dfpl.dbp.rtree;
+package org.dfpl.dbp.rtree.team2;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -22,40 +22,38 @@ public class MainFrame extends JFrame implements RTreeListener {
     // 상태 정보를 표시할 라벨들
     private JLabel statusLabel;
     private JLabel statsLabel;
-
-    // === 시각화 상태 변수들 ===
     
-    /** 현재 시각화 중인 R-Tree */
+    // 현재 시각화 중인 R-Tree
     private RTree currentTree;
     
-    /** 검색 영역 (녹색 사각형으로 표시) */
+    // 검색 영역 (녹색 사각형으로 표시)
     private Rectangle searchArea;
     
-    /** 검색 결과로 찾은 포인트들 (파란색으로 강조) */
+    // 검색 결과로 찾은 포인트들 (파란색으로 강조)
     private List<Point> foundPoints = new ArrayList<>();
     
-    /** 가지치기된 노드들 (빨간색으로 표시) */
+    // 가지치기된 노드들 (빨간색으로 표시)
     private List<Node> prunedNodes = new ArrayList<>();
     
-    /** 방문한 노드들 (KNN 검색에서 노란색으로 표시) */
+    // 방문한 노드들 (KNN 검색에서 노란색으로 표시)
     private List<Node> visitedNodes = new ArrayList<>();
     
-    /** 스캔 중인 포인트들 (현재 검사 중인 리프 노드의 포인트) */
+    // 스캔 중인 포인트들 (현재 검사 중인 리프 노드의 포인트)
     private List<Point> scanningPoints = new ArrayList<>();
     
-    /** 현재 검사 중인 포인트 (리프 노드 내부에서 하나씩 검사) */
+    // 현재 검사 중인 포인트 (리프 노드 내부에서 하나씩 검사)
     private Point currentScanningPoint;
     
-    /** KNN 검색의 기준 포인트 (빨간색으로 표시) */
+    // KNN 검색의 기준 포인트 (빨간색으로 표시)
     private Point knnSource;
     
-    /** KNN 검색 결과 포인트들 (마젠타색으로 표시되며 기준점과 선으로 연결) */
+    // KNN 검색 결과 포인트들 (마젠타색으로 표시되며 기준점과 선으로 연결)
     private List<Point> knnResults = new ArrayList<>();
     
-    /** KNN 검색 중 우선순위 큐에서 현재 처리 중인 엔트리 */
+    // KNN 검색 중 우선순위 큐에서 현재 처리 중인 엔트리
     private PQEntry currentEntry;
     
-    /** 일반 검색 중 현재 처리 중인 노드 (오렌지색으로 강조) */
+    // 일반 검색 중 현재 처리 중인 노드 (주황색으로 강조)
     private Node currentSearchNode;
 
     /**
@@ -119,14 +117,14 @@ public class MainFrame extends JFrame implements RTreeListener {
         // 일반 검색 상태 초기화
         this.currentSearchNode = null;
 
-        updateStatus("트리 업데이트됨", "노드 수: " + countNodes(((RTreeImpl)rTree).getRoot()));
+        updateStatus("트리 변경됨", "노드 수: " + countNodes(((RTreeImpl)rTree).getRoot()));
         
         // 화면 갱신
         treePanel.repaint();
 
         // 애니메이션 효과를 위한 짧은 대기
         try {
-            Thread.sleep(500);
+            Thread.sleep(Assignment45.stepWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -178,7 +176,7 @@ public class MainFrame extends JFrame implements RTreeListener {
      */
     @Override
     public void onSearchStep(Node visitedNode, boolean isPruned) {
-        // 현재 처리 중인 노드 설정 (오렌지색으로 강조됨)
+        // 현재 처리 중인 노드 설정 (주황색으로 강조됨)
         this.currentSearchNode = visitedNode;
         
         if (isPruned) {
@@ -202,7 +200,7 @@ public class MainFrame extends JFrame implements RTreeListener {
                     // 현재 검사 중인 포인트 설정
                     currentScanningPoint = point;
                     
-                    updateStatus("리프 포인트 스캔 중...", 
+                    updateStatus("리프 포인트 탐색 중...", 
                         String.format("방문: %d | 가지치기: %d | 찾음: %d", 
                         visitedNodes.size(), prunedNodes.size(), foundPoints.size()));
                     
@@ -210,7 +208,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
                     // 포인트 검사 애니메이션을 위한 대기
                     try {
-                        Thread.sleep(300);
+                        Thread.sleep(Assignment45.stepWaitTime);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -240,7 +238,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 노드 방문 애니메이션을 위한 대기
         try {
-            Thread.sleep(500);
+            Thread.sleep(Assignment45.stepWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -272,7 +270,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 결과 확인을 위한 대기
         try {
-            Thread.sleep(1000);
+            Thread.sleep(Assignment45.taskWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -337,7 +335,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 단계별 처리 애니메이션을 위한 대기
         try {
-            Thread.sleep(500);
+            Thread.sleep(Assignment45.stepWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -366,19 +364,17 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 결과 확인을 위한 대기
         try {
-            Thread.sleep(1000);
+            Thread.sleep(Assignment45.taskWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
     }
     
+    // 상태 라벨 업데이트
     private void updateStatus(String status, String stats) {
         if (statusLabel != null) statusLabel.setText(status);
         if (statsLabel != null) statsLabel.setText(stats);
     }
-
-    // === Getter 메서드들 ===
-    // RTreePanel에서 시각화 상태를 가져가기 위한 메서드들
     
     public RTree getCurrentTree() {
         return currentTree;

@@ -1,9 +1,12 @@
-package org.dfpl.dbp.rtree;
+package org.dfpl.dbp.rtree.team2;
 
 import java.util.Iterator;
 import java.util.List;
 
 public class Assignment45 {
+
+	public static final long stepWaitTime = 300l;
+	public static final long taskWaitTime = 1000l;
 
 	public static void main(String[] args) throws Exception {
 		// 4-way R-Tree에 순서대로 삽입될 list
@@ -26,7 +29,7 @@ public class Assignment45 {
 		for (Point point : pointList) {
 			rTree.add(point);
 		}
-		Thread.sleep(1000);
+		Thread.sleep(taskWaitTime);
 
 		// Task234는 Task1이 성공하지 않으면 평가하지 않는다.
 
@@ -49,7 +52,7 @@ public class Assignment45 {
 //	        (95,90)
 //	        (100,65)
 		}
-		Thread.sleep(1000);
+		Thread.sleep(taskWaitTime);
 
 		// 과제3: 4-way R-Tree의 KNN 검색 (5점)
 		// 요건: 탐색된 점들을 보여줄 수 있다 (부분 2.5점)
@@ -65,7 +68,7 @@ public class Assignment45 {
 //		       	(100,65) : 32.02
 //		       	(120,100) : 47.43
 		}
-		Thread.sleep(1000);
+		Thread.sleep(taskWaitTime);
 
 		// 과제4: 4-way R-Tree의 노드 제거 (5점)
 		// 요건: point가 제거될 때마다 변형된 계층적 Bounding Box들이 표시되어야 함

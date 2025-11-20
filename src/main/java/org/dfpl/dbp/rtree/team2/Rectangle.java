@@ -1,4 +1,6 @@
-package org.dfpl.dbp.rtree;
+package org.dfpl.dbp.rtree.team2;
+
+import java.util.List;
 
 public class Rectangle {
 
@@ -8,7 +10,7 @@ public class Rectangle {
 
 	public Rectangle(Point p1, Point p2) {
 		super();
-		
+
 		// p1, p2 중에서 leftTop과 rightBottom 결정
 		double left = Math.min(p1.getX(), p2.getX());
 		double top = Math.max(p1.getY(), p2.getY());
@@ -46,7 +48,9 @@ public class Rectangle {
 		return Math.abs((rightBottom.getX() - leftTop.getX()) * (rightBottom.getY() - leftTop.getY()));
 	}
 
-	// 두 Rectangle이 겹치는지 여부 반환
+	/** 
+	 * 두 Rectangle이 겹치는지 여부를 반환
+	 */
 	public boolean intersects(Rectangle other) {
 		// 겹치지 않는 경우를 확인해 전부 맞지 않으면 true 반환
 		// 겹치지 않는 조건 1. this의 오른쪽이 other의 왼쪽보다 왼쪽에 있는 경우
@@ -72,21 +76,10 @@ public class Rectangle {
 		return true;
 	}
 
-	public boolean contains(Rectangle other) {
-		// this가 other를 포함하는지 여부 반환
-		// other의 두 점이 this의 두 점보다 안쪽에 있으면 포함
-		// leftTop은 other가 this보다 x좌표가 크고 y좌표가 작아야 함
-		// rightBottom은 other가 this보다 x좌표가 작고 y좌표가 커야 함
-		if (this.leftTop.getX() <= other.leftTop.getX() && this.leftTop.getY() >= other.leftTop.getY()
-				&& this.rightBottom.getX() >= other.rightBottom.getX()
-				&& this.rightBottom.getY() <= other.rightBottom.getY()) {
-			return true;
-		}
-		return false;
-	}
-
+	/**
+	 * 이 Rectangle이 Point를 포함하는지 여부 반환
+	 */
 	public boolean contains(Point point) {
-		// this가 point를 포함하는지 여부 반환 (경계 포함)
 		if (this.leftTop.getX() <= point.getX() && this.rightBottom.getX() >= point.getX()
 				&& this.leftTop.getY() >= point.getY() && this.rightBottom.getY() <= point.getY()) {
 			return true;
@@ -137,14 +130,71 @@ public class Rectangle {
 		else if (p.getX() > xMax)
 			dx = p.getX() - xMax;
 
-
 		// y축 기준으로 Rectangle 밖에 있으면 가장 가까운 거리 계산
 		if (p.getY() < yMin)
 			dy = yMin - p.getY();
 		else if (p.getY() > yMax)
 			dy = p.getY() - yMax;
 
-		// 피타고라스 정리로 거리 계산
 		return (dx == 0 && dy == 0) ? 0.0 : Math.sqrt(dx * dx + dy * dy);
+	}
+
+	/**
+	 * Point 리스트를 모두 포함하는 Rectangle 생성
+	 */
+	public static Rectangle makeNewRectFromPoints(List<Point> points) {
+		if (points == null || points.isEmpty()) {
+			throw new IllegalArgumentException("Point 리스트가 비어있습니다");
+		}
+
+		// 첫번째 Point로 초기값 설정
+		Point first = points.get(0);
+		double minX = first.getX();
+		double minY = first.getY();
+		double maxX = first.getX();
+		double maxY = first.getY();
+
+		// 모든 Point를 순회하며 최소/최대 좌표 갱신
+		for (int i = 1; i < points.size(); i++) {
+			Point p = points.get(i);
+			minX = Math.min(minX, p.getX());
+			minY = Math.min(minY, p.getY());
+			maxX = Math.max(maxX, p.getX());
+			maxY = Math.max(maxY, p.getY());
+		}
+
+		return new Rectangle(new Point(minX, maxY), new Point(maxX, minY));
+	}
+
+	/**
+	 * Node 리스트를 모두 포함하는 Rectangle 생성
+	 */
+	public static Rectangle makeNewRectFromNodes(List<Node> nodes) {
+		if (nodes == null || nodes.isEmpty()) {
+			throw new IllegalArgumentException("Node 리스트가 비어있습니다");
+		}
+
+		// 첫 번째 Node의 MBR로 초기화
+		Rectangle first = nodes.get(0).getMbr();
+		double minX = first.getLeftTop().getX();
+		double maxY = first.getLeftTop().getY();
+		double maxX = first.getRightBottom().getX();
+		double minY = first.getRightBottom().getY();
+
+		// 모든 Node의 MBR을 순회하며 최소/최대 좌표 갱신
+		for (int i = 1; i < nodes.size(); i++) {
+			Rectangle rect = nodes.get(i).getMbr();
+
+			// 왼쪽 위 좌표 처리
+			minX = Math.min(minX, rect.getLeftTop().getX());
+			maxY = Math.max(maxY, rect.getLeftTop().getY());
+
+			// 오른쪽 아래 좌표 처리
+			maxX = Math.max(maxX, rect.getRightBottom().getX());
+			minY = Math.min(minY, rect.getRightBottom().getY());
+		}
+
+		// 최종 Rectangle 1개만 생성
+		return new Rectangle(new Point(minX, maxY), new Point(maxX, minY));
 	}
 }

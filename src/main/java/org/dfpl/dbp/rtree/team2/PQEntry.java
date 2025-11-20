@@ -1,4 +1,4 @@
-package org.dfpl.dbp.rtree;
+package org.dfpl.dbp.rtree.team2;
 
 // 우선순위 큐를 위한 정보 저장 클래스
 class PQEntry {
