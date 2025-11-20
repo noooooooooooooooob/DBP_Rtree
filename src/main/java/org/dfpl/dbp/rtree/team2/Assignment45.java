@@ -8,7 +8,8 @@ import org.dfpl.dbp.rtree.team2.Rectangle;
 import java.util.Iterator;
 import java.util.List;
 
-public class Assignment45 {
+public class
+Assignment45 {
 
 	public static void main(String[] args) {
 		// 4-way R-Tree에 순서대로 삽입될 list
