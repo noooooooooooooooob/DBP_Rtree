@@ -19,15 +19,13 @@ public interface RTreeListener {
      * 
      * @param rTree 현재 R-Tree
      * @param searchArea 검색 영역
-     * @param foundPoints 검색된 포인트들
-     * @param prunedNodes 가지치기된 노드들 (검색 범위와 겹치지 않음)
      */
     void onSearchStarted(RTree rTree, Rectangle searchArea);
 
     /**
      * 검색의 각 단계가 진행될 때 호출
-     * @param rTree
-     * @param searchArea
+     * @param visitedNodes
+     * @param isPruned
      */
     void onSearchStep(Node visitedNodes, boolean isPruned);
 
