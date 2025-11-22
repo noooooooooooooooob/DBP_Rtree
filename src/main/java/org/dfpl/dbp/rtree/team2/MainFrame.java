@@ -17,6 +17,9 @@ import javax.swing.JPanel;
  */
 public class MainFrame extends JFrame implements RTreeListener {
 
+    public static final long stepWaitTime = 300l;
+    public static final long taskWaitTime = 1000l;
+
     private RTreePanel treePanel;
     
     // 상태 정보를 표시할 라벨들
@@ -124,7 +127,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 애니메이션 효과를 위한 짧은 대기
         try {
-            Thread.sleep(Assignment45.stepWaitTime);
+            Thread.sleep(stepWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -208,7 +211,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
                     // 포인트 검사 애니메이션을 위한 대기
                     try {
-                        Thread.sleep(Assignment45.stepWaitTime);
+                        Thread.sleep(stepWaitTime);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -238,7 +241,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 노드 방문 애니메이션을 위한 대기
         try {
-            Thread.sleep(Assignment45.stepWaitTime);
+            Thread.sleep(stepWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -270,7 +273,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 결과 확인을 위한 대기
         try {
-            Thread.sleep(Assignment45.taskWaitTime);
+            Thread.sleep(taskWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -335,7 +338,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 단계별 처리 애니메이션을 위한 대기
         try {
-            Thread.sleep(Assignment45.stepWaitTime);
+            Thread.sleep(stepWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -364,7 +367,7 @@ public class MainFrame extends JFrame implements RTreeListener {
 
         // 결과 확인을 위한 대기
         try {
-            Thread.sleep(Assignment45.taskWaitTime);
+            Thread.sleep(taskWaitTime);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

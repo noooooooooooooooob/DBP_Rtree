@@ -5,8 +5,7 @@ import java.util.List;
 
 public class Assignment45 {
 
-	public static final long stepWaitTime = 300l;
-	public static final long taskWaitTime = 1000l;
+
 
 	public static void main(String[] args) throws Exception {
 		// 4-way R-Tree에 순서대로 삽입될 list
@@ -18,18 +17,15 @@ public class Assignment45 {
 				new Point(70, 80), new Point(95, 90), new Point(120, 100), new Point(80, 110), new Point(130, 40),
 				new Point(100, 65));
 
-		MainFrame mainFrame = new MainFrame();
+
 
 		// Task1: 4-way R-Tree의 생성 (5점)
 		// 요건: point가 추가될 때마다 Java Swing 혹은 Java Fx 등의 GUI에 추가된 점과 함께
 		// 점에 의해 변형된 계층적 Bounding Box들이 표시되어야 함
 		RTree rTree = new RTreeImpl();
-
-		rTree.setRTreeListener(mainFrame);
 		for (Point point : pointList) {
 			rTree.add(point);
 		}
-		Thread.sleep(taskWaitTime);
 
 		// Task234는 Task1이 성공하지 않으면 평가하지 않는다.
 
@@ -52,7 +48,6 @@ public class Assignment45 {
 //	        (95,90)
 //	        (100,65)
 		}
-		Thread.sleep(taskWaitTime);
 
 		// 과제3: 4-way R-Tree의 KNN 검색 (5점)
 		// 요건: 탐색된 점들을 보여줄 수 있다 (부분 2.5점)
@@ -68,7 +63,6 @@ public class Assignment45 {
 //		       	(100,65) : 32.02
 //		       	(120,100) : 47.43
 		}
-		Thread.sleep(taskWaitTime);
 
 		// 과제4: 4-way R-Tree의 노드 제거 (5점)
 		// 요건: point가 제거될 때마다 변형된 계층적 Bounding Box들이 표시되어야 함

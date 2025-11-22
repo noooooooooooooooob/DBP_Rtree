@@ -18,6 +18,10 @@ public class RTreeImpl implements RTree {
     private static final int MAX_CHILDREN = 4;
     private static final int MIN_CHILDREN = MAX_CHILDREN / 2;
 
+    public RTreeImpl(){
+        MainFrame mainFrame = new MainFrame();
+        this.setRTreeListener(mainFrame);
+    }
     private Node root = null;
 
     public Node getRoot() {
