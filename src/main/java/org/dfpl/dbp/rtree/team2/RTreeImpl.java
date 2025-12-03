@@ -22,6 +22,11 @@ public class RTreeImpl implements RTree {
         MainFrame mainFrame = new MainFrame();
         this.setRTreeListener(mainFrame);
     }
+
+    public RTreeImpl(RTreeListener listener){
+        this.setRTreeListener(listener);
+    }
+
     private Node root = null;
 
     public Node getRoot() {
