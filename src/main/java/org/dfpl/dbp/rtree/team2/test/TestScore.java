@@ -15,10 +15,10 @@ public class TestScore {
 
     public static void main(String[] args) {
         // 테스트용 데이터
-        int DATA_SIZE = 100000; // 데이터 개수
+        int DATA_SIZE = 1000000; // 데이터 개수
         int BOUND_X = 10000;    // x 좌표 범위
         int BOUND_Y = 10000;    // y 좌표 범위
-        int REMOVE_CNT = 100000;
+        int REMOVE_CNT = 1000;
 
         System.out.println("데이터 " + DATA_SIZE + "개 생성 중...");
         List<Point> pointList = new ArrayList<>(DATA_SIZE);
@@ -49,18 +49,26 @@ public class TestScore {
 
         System.out.println("Add - ArrayList: " + listAddTime + "ms, RTree: " + rTreeAddTime + "ms");
 
-        // 검색 범위: (20, 20) ~ (60, 60) 사각형 영역이라 가정
-        Rectangle searchRect = new Rectangle(new Point(20, 20),  new Point(60, 60));
+        // 검색하기
+        double minX = BOUND_X * 0.4;
+        double minY = BOUND_Y * 0.4;
+        double maxX = BOUND_X * 0.6;
+        double maxY = BOUND_Y * 0.6;
+
+        // 1000000개 데이터 기준
+        // ArrayList는 탐색범위에 상관없이 항상 일정한 시간이 걸리나
+        // RTree는 탐색범위가 커질수록 시간이 오래걸린다.
+
+        Rectangle searchRect = new Rectangle(new Point(minX, minY), new Point(maxX, maxY));
 
         long listSearchTime = getRunTime(() -> {
             List<Point> result = new ArrayList<>();
-            // ArrayList는 전체를 순회하며 범위 체크
             for (Point p : points) {
-                if (p.getX() >= 20 && p.getX() <= 60 && p.getY() >= 20 && p.getY() <= 60) {
+                if (p.getX() >= minX && p.getX() <= maxX && p.getY() >= minY && p.getY() <= maxY) {
                     result.add(p);
                 }
             }
-            System.out.println("List Search Result: " + result.size());
+            // System.out.println("   -> List Found: " + result.size());
         });
 
         long rTreeSearchTime = getRunTime(() -> {
@@ -69,23 +77,21 @@ public class TestScore {
             while (it.hasNext()) {
                 result.add(it.next());
             }
-            System.out.println("RTree Search Result: " + result.size());
+            // System.out.println("   -> RTree Found: " + result.size());
         });
 
         System.out.println("Search - ArrayList: " + listSearchTime + "ms, RTree: " + rTreeSearchTime + "ms");
 
-        Point targetPoint = new Point(50, 50);
-        int k = 5; // 가장 가까운 5개 찾기
+        Point targetPoint = new Point(BOUND_X / 2.0, BOUND_Y / 2.0); // 정중앙
+        int k = 10;
 
         long listNearestTime = getRunTime(() -> {
-            // ArrayList는 거리 계산 후 정렬 필요 (O(N log N) or O(N))
             List<Point> result = points.stream()
                     .sorted(Comparator.comparingDouble(p ->
                             Math.pow(p.getX() - targetPoint.getX(), 2) + Math.pow(p.getY() - targetPoint.getY(), 2)
                     ))
                     .limit(k)
                     .toList();
-            System.out.println("List Nearest Point: " + result.size());
         });
 
         long rTreeNearestTime = getRunTime(() -> {
@@ -94,7 +100,6 @@ public class TestScore {
             while (it.hasNext()) {
                 result.add(it.next());
             }
-            System.out.println("RTree Nearest Point: " + result.size());
         });
 
         System.out.println("Nearest - ArrayList: " + listNearestTime + "ms, RTree: " + rTreeNearestTime + "ms");
